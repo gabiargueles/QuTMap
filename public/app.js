@@ -80,6 +80,8 @@ const connStatusText = document.getElementById('connStatusText');
 const restAdvisorItem = document.getElementById('restAdvisorItem');
 const restStopValue = document.getElementById('restStopValue');
 const fuelAdvisorItem = document.getElementById('fuelAdvisorItem');
+const fuelReserveFill = document.getElementById('fuelReserveFill');
+const fuelMainFill = document.getElementById('fuelMainFill');
 const fuelValue = document.getElementById('fuelValue');
 const gameClockValue = document.getElementById('gameClockValue');
 
@@ -199,6 +201,8 @@ function buildClientSpatialGrid(data) {
   const roadsGrid = new Map();
   const prefabsGrid = new Map();
   const polysGrid = new Map();
+  const lodChunks = new Map();
+  const LOD_CHUNK_SIZE = 12000;
 
   const insertBBox = (grid, minX, minY, maxX, maxY, idx) => {
     const gx0 = Math.floor(minX / GRID_CELL);
@@ -227,18 +231,105 @@ function buildClientSpatialGrid(data) {
     return [minX, minY, maxX, maxY];
   };
 
+  // Mapa rápido de extremidades de estradas para que os prefabs herdem a cor/largura da rodovia conectada
+  const endpointClassMap = new Map();
+  const snapKey = (x, y) => `${Math.round(x / 8)},${Math.round(y / 8)}`;
+  const recordEndpoint = (x, y, cls) => {
+    const k = snapKey(x, y);
+    const cur = endpointClassMap.get(k);
+    if (cur === undefined || cls < cur) endpointClassMap.set(k, cls);
+  };
+
+  const globalHwPath = new Path2D();
+  const globalPriPath = new Path2D();
+  const globalLocPath = new Path2D();
+
+  const getLodChunk = (cx, cy) => {
+    const k = `${cx},${cy}`;
+    let ch = lodChunks.get(k);
+    if (!ch) {
+      ch = {
+        hwPath: new Path2D(),
+        priPath: new Path2D(),
+        locPath: new Path2D(),
+        hasHw: false,
+        hasPri: false,
+        hasLoc: false,
+      };
+      lodChunks.set(k, ch);
+    }
+    return ch;
+  };
+
+  const addSimplifiedToPath = (p2d, pts) => {
+    const n = pts.length;
+    p2d.moveTo(pts[0], pts[1]);
+    if (n >= 10) {
+      const mid = (n >> 2) << 1;
+      p2d.lineTo(pts[mid], pts[mid + 1]);
+    }
+    p2d.lineTo(pts[n - 2], pts[n - 1]);
+  };
+
   for (let i = 0; i < data.roads.length; i++) {
-    const pts = data.roads[i][0];
+    const r = data.roads[i];
+    const pts = r[0];
     if (!pts || pts.length < 4) continue;
+    const rType = r[1];
+    const cls = rType === 0 || rType === 1 ? 1 : rType === 2 ? 2 : 3;
+
+    recordEndpoint(pts[0], pts[1], cls);
+    recordEndpoint(pts[pts.length - 2], pts[pts.length - 1], cls);
+
     const [minX, minY, maxX, maxY] = computeBBox(pts);
     insertBBox(roadsGrid, minX, minY, maxX, maxY, i);
+
+    const cx = Math.floor(((minX + maxX) * 0.5) / LOD_CHUNK_SIZE);
+    const cy = Math.floor(((minY + maxY) * 0.5) / LOD_CHUNK_SIZE);
+    const ch = getLodChunk(cx, cy);
+
+    if (cls === 1) {
+      addSimplifiedToPath(ch.hwPath, pts);
+      addSimplifiedToPath(globalHwPath, pts);
+      ch.hasHw = true;
+    } else if (cls === 2) {
+      addSimplifiedToPath(ch.priPath, pts);
+      addSimplifiedToPath(globalPriPath, pts);
+      ch.hasPri = true;
+    } else {
+      addSimplifiedToPath(ch.locPath, pts);
+      if (Math.hypot(maxX - minX, maxY - minY) > 65) {
+        addSimplifiedToPath(globalLocPath, pts);
+      }
+      ch.hasLoc = true;
+    }
   }
 
+  const prefabClasses = new Uint8Array(data.prefabCurves.length);
   for (let i = 0; i < data.prefabCurves.length; i++) {
-    const pts = data.prefabCurves[i][0];
+    const pf = data.prefabCurves[i];
+    const pts = pf[0];
     if (!pts || pts.length < 4) continue;
     const [minX, minY, maxX, maxY] = computeBBox(pts);
     insertBBox(prefabsGrid, minX, minY, maxX, maxY, i);
+
+    const cStart = endpointClassMap.get(snapKey(pts[0], pts[1])) || 3;
+    const cEnd = endpointClassMap.get(snapKey(pts[pts.length - 2], pts[pts.length - 1])) || 3;
+    const bestCls = pf[1] === 1 ? 1 : Math.min(cStart, cEnd);
+    prefabClasses[i] = bestCls;
+
+    const cx = Math.floor(((minX + maxX) * 0.5) / LOD_CHUNK_SIZE);
+    const cy = Math.floor(((minY + maxY) * 0.5) / LOD_CHUNK_SIZE);
+    const ch = getLodChunk(cx, cy);
+    if (bestCls === 1) {
+      addSimplifiedToPath(ch.hwPath, pts);
+      addSimplifiedToPath(globalHwPath, pts);
+      ch.hasHw = true;
+    } else if (bestCls === 2) {
+      addSimplifiedToPath(ch.priPath, pts);
+      addSimplifiedToPath(globalPriPath, pts);
+      ch.hasPri = true;
+    }
   }
 
   for (let i = 0; i < data.polygons.length; i++) {
@@ -248,7 +339,17 @@ function buildClientSpatialGrid(data) {
     insertBBox(polysGrid, minX, minY, maxX, maxY, i);
   }
 
-  spatialGrid = { roadsGrid, prefabsGrid, polysGrid };
+  spatialGrid = {
+    roadsGrid,
+    prefabsGrid,
+    polysGrid,
+    prefabClasses,
+    lodChunks,
+    LOD_CHUNK_SIZE,
+    globalHwPath,
+    globalPriPath,
+    globalLocPath,
+  };
 }
 
 // ============================================================================
@@ -382,36 +483,7 @@ function renderFrame() {
   const minWy = camera.y - diagRadiusWorld;
   const maxWy = camera.y + diagRadiusWorld;
 
-  const gx0 = Math.floor(minWx / GRID_CELL);
-  const gx1 = Math.floor(maxWx / GRID_CELL);
-  const gy0 = Math.floor(minWy / GRID_CELL);
-  const gy1 = Math.floor(maxWy / GRID_CELL);
-
-  const visibleRoads = new Set();
-  const visiblePrefabs = new Set();
-  const visiblePolys = new Set();
-
-  // Em zoom muito afastado, evita iterar dezenas de milhares de células vazias
-  const totalCells = (gx1 - gx0 + 1) * (gy1 - gy0 + 1);
-  if (totalCells < 900) {
-    for (let gx = gx0; gx <= gx1; gx++) {
-      for (let gy = gy0; gy <= gy1; gy++) {
-        const key = `${gx},${gy}`;
-        const rList = spatialGrid.roadsGrid.get(key);
-        if (rList) for (let i = 0; i < rList.length; i++) visibleRoads.add(rList[i]);
-        if (camera.scale > 0.08) {
-          const pList = spatialGrid.prefabsGrid.get(key);
-          if (pList) for (let i = 0; i < pList.length; i++) visiblePrefabs.add(pList[i]);
-        }
-        if (camera.scale > 0.14) {
-          const polyList = spatialGrid.polysGrid.get(key);
-          if (polyList) for (let i = 0; i < polyList.length; i++) visiblePolys.add(polyList[i]);
-        }
-      }
-    }
-  } else {
-    for (let i = 0; i < mapData.roads.length; i++) visibleRoads.add(i);
-  }
+  const minPx = (px) => px / effectiveScale;
 
   // Aplica transformação de câmera no mundo Prism3D
   ctx.save();
@@ -420,120 +492,187 @@ function renderFrame() {
   ctx.scale(effectiveScale, effectiveScale);
   ctx.translate(-camera.x, -camera.y);
 
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  // ==========================================================================
+  // MODO OTIMIZADO (LOD PATH2D GPU) QUANDO O ZOOM ESTÁ AFASTADO (< 0.16)
+  // ==========================================================================
+  if (camera.scale < 0.16) {
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'bevel';
 
-  // 2. Polígonos de Pátios / Empresas / Postos (mapAreas)
-  if (visiblePolys.size > 0) {
-    ctx.fillStyle = '#1b2330';
-    ctx.strokeStyle = '#263142';
-    ctx.lineWidth = Math.max(1.5, 1.5 / effectiveScale);
-    ctx.beginPath();
-    for (const idx of visiblePolys) {
-      const pts = mapData.polygons[idx][0];
-      ctx.moveTo(pts[0], pts[1]);
-      for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-      ctx.closePath();
-    }
-    ctx.fill();
-    ctx.stroke();
-  }
+    const wHwLod = Math.max(22.0, minPx(4.2));
+    const wPriLod = Math.max(17.0, minPx(3.2));
+    const wLocLod = Math.max(12.0, minPx(2.0));
 
-  // Larguras das pistas em metros do mundo (com mínimo em pixels para leitura perfeita no tablet!)
-  const minPx = (px) => px / effectiveScale;
-  const wHighway = Math.max(15.5, minPx(6.5));
-  const wPrimary = Math.max(12.5, minPx(5.2));
-  const wLocal = Math.max(10.0, minPx(4.2));
-  const wCasingExtra = Math.max(4.5, minPx(2.4));
-
-  // Agrupa estradas visíveis por classe para batching ultra-rápido
-  const hwIndices = [];
-  const priIndices = [];
-  const locIndices = [];
-  const dirtIndices = [];
-
-  for (const idx of visibleRoads) {
-    const rType = mapData.roads[idx][1];
-    if (rType === 0 || rType === 1) hwIndices.push(idx);
-    else if (rType === 2) priIndices.push(idx);
-    else if (rType === 4) dirtIndices.push(idx);
-    else locIndices.push(idx);
-  }
-
-  // 3A. Borda Externa Escura (Road Casing)
-  ctx.strokeStyle = '#070a0f';
-  if (locIndices.length > 0 || visiblePrefabs.size > 0) {
-    ctx.lineWidth = wLocal + wCasingExtra;
-    ctx.beginPath();
-    for (const idx of locIndices) drawPolylinePath(mapData.roads[idx][0]);
-    for (const idx of visiblePrefabs) drawPolylinePath(mapData.prefabCurves[idx][0]);
-    ctx.stroke();
-  }
-  if (dirtIndices.length > 0) {
-    ctx.lineWidth = wLocal + wCasingExtra;
-    ctx.beginPath();
-    for (const idx of dirtIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-  }
-  if (priIndices.length > 0) {
-    ctx.lineWidth = wPrimary + wCasingExtra;
-    ctx.beginPath();
-    for (const idx of priIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-  }
-  if (hwIndices.length > 0) {
-    ctx.lineWidth = wHighway + wCasingExtra;
-    ctx.beginPath();
-    for (const idx of hwIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-  }
-
-  // 3B. Preenchimento das Vias (Cores Oficiais SCS Route Advisor)
-  // Estradas de terra / pedreiras
-  if (dirtIndices.length > 0) {
-    ctx.strokeStyle = '#9c7b56';
-    ctx.lineWidth = wLocal;
-    ctx.beginPath();
-    for (const idx of dirtIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-  }
-
-  // Ruas urbanas, alças de trevos e curvas internas de prefabs
-  if (locIndices.length > 0 || visiblePrefabs.size > 0) {
-    ctx.strokeStyle = '#8b9bb1';
-    ctx.lineWidth = wLocal;
-    ctx.beginPath();
-    for (const idx of locIndices) drawPolylinePath(mapData.roads[idx][0]);
-    for (const idx of visiblePrefabs) drawPolylinePath(mapData.prefabCurves[idx][0]);
-    ctx.stroke();
-  }
-
-  // Rodovias primárias (amarelo claro SCS)
-  if (priIndices.length > 0) {
-    ctx.strokeStyle = '#e5c967';
-    ctx.lineWidth = wPrimary;
-    ctx.beginPath();
-    for (const idx of priIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-  }
-
-  // Autoestradas / Rodovias Duplas (Laranja/Ouro SCS)
-  if (hwIndices.length > 0) {
-    ctx.strokeStyle = '#eea63a';
-    ctx.lineWidth = wHighway;
-    ctx.beginPath();
-    for (const idx of hwIndices) drawPolylinePath(mapData.roads[idx][0]);
-    ctx.stroke();
-
-    // Linha divisória central de pista dupla quando próximo
-    if (camera.scale > 0.32) {
-      ctx.strokeStyle = 'rgba(16, 21, 29, 0.55)';
-      ctx.lineWidth = Math.max(1.4, minPx(1.1));
-      ctx.beginPath();
-      for (const idx of hwIndices) {
-        if (mapData.roads[idx][1] === 1) drawPolylinePath(mapData.roads[idx][0]);
+    if (camera.scale < 0.045) {
+      // Visão Geral do País / Continente — 3 chamadas diretas na GPU (Zero Lag!)
+      if (camera.scale > 0.025) {
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = wLocLod;
+        ctx.stroke(spatialGrid.globalLocPath);
       }
+      ctx.strokeStyle = '#e5c967';
+      ctx.lineWidth = wPriLod;
+      ctx.stroke(spatialGrid.globalPriPath);
+
+      ctx.strokeStyle = '#eea63a';
+      ctx.lineWidth = wHwLod;
+      ctx.stroke(spatialGrid.globalHwPath);
+    } else {
+      // Visão Regional — Culling por Super-Chunks de 12km pré-compilados em Path2D
+      const cs = spatialGrid.LOD_CHUNK_SIZE;
+      const cx0 = Math.floor(minWx / cs);
+      const cx1 = Math.floor(maxWx / cs);
+      const cy0 = Math.floor(minWy / cs);
+      const cy1 = Math.floor(maxWy / cs);
+      const visibleChunks = [];
+      for (let cx = cx0; cx <= cx1; cx++) {
+        for (let cy = cy0; cy <= cy1; cy++) {
+          const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
+          if (ch) visibleChunks.push(ch);
+        }
+      }
+
+      ctx.strokeStyle = '#7c8ea6';
+      ctx.lineWidth = wLocLod;
+      for (let i = 0; i < visibleChunks.length; i++) {
+        if (visibleChunks[i].hasLoc) ctx.stroke(visibleChunks[i].locPath);
+      }
+
+      ctx.strokeStyle = '#e5c967';
+      ctx.lineWidth = wPriLod;
+      for (let i = 0; i < visibleChunks.length; i++) {
+        if (visibleChunks[i].hasPri) ctx.stroke(visibleChunks[i].priPath);
+      }
+
+      ctx.strokeStyle = '#eea63a';
+      ctx.lineWidth = wHwLod;
+      for (let i = 0; i < visibleChunks.length; i++) {
+        if (visibleChunks[i].hasHw) ctx.stroke(visibleChunks[i].hwPath);
+      }
+    }
+  } else {
+    // ========================================================================
+    // MODO DETALHADO (ZOOM PRÓXIMO >= 0.16) — VIAS MAIS GROSSAS + DUAS VIAS
+    // ========================================================================
+    const gx0 = Math.floor(minWx / GRID_CELL);
+    const gx1 = Math.floor(maxWx / GRID_CELL);
+    const gy0 = Math.floor(minWy / GRID_CELL);
+    const gy1 = Math.floor(maxWy / GRID_CELL);
+
+    const visibleRoads = new Set();
+    const visiblePrefabs = new Set();
+    const visiblePolys = new Set();
+
+    for (let gx = gx0; gx <= gx1; gx++) {
+      for (let gy = gy0; gy <= gy1; gy++) {
+        const key = `${gx},${gy}`;
+        const rList = spatialGrid.roadsGrid.get(key);
+        if (rList) for (let i = 0; i < rList.length; i++) visibleRoads.add(rList[i]);
+        const pList = spatialGrid.prefabsGrid.get(key);
+        if (pList) for (let i = 0; i < pList.length; i++) visiblePrefabs.add(pList[i]);
+        const polyList = spatialGrid.polysGrid.get(key);
+        if (polyList) for (let i = 0; i < polyList.length; i++) visiblePolys.add(polyList[i]);
+      }
+    }
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 2. Polígonos de Pátios / Empresas / Postos (mapAreas)
+    if (visiblePolys.size > 0) {
+      ctx.fillStyle = '#1b2330';
+      ctx.strokeStyle = '#263142';
+      ctx.lineWidth = Math.max(1.5, 1.5 / effectiveScale);
+      ctx.beginPath();
+      for (const idx of visiblePolys) {
+        const pts = mapData.polygons[idx][0];
+        ctx.moveTo(pts[0], pts[1]);
+        for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+        ctx.closePath();
+      }
+      ctx.fill();
       ctx.stroke();
+    }
+
+    // Larguras mais encorpadas para diferenciar perfeitamente pistas de mão dupla (duas vias) e mão única
+    const wHw2 = Math.max(25.5, minPx(11.2));
+    const wHw1 = Math.max(18.5, minPx(8.2));
+    const wPri2 = Math.max(22.0, minPx(9.6));
+    const wPri1 = Math.max(16.0, minPx(7.2));
+    const wLoc2 = Math.max(18.0, minPx(7.8));
+    const wLoc1 = Math.max(14.0, minPx(6.2));
+    const wCasingExtra = Math.max(5.2, minPx(2.8));
+
+    const hw2 = [], hw1 = [];
+    const pri2 = [], pri1 = [];
+    const loc2 = [], loc1 = [];
+    const dirt = [];
+    const twoLaneDividers = [];
+
+    for (const idx of visibleRoads) {
+      const r = mapData.roads[idx];
+      const rType = r[1];
+      const lanesL = r[2] ?? 1;
+      const lanesR = r[3] ?? 1;
+      const isTwoWay = lanesL > 0 && lanesR > 0;
+      const hasMultiLanes = isTwoWay || (lanesL + lanesR >= 2);
+
+      if (rType === 0 || rType === 1) {
+        if (isTwoWay) hw2.push(r[0]);
+        else hw1.push(r[0]);
+        if (hasMultiLanes) twoLaneDividers.push(r[0]);
+      } else if (rType === 2) {
+        if (isTwoWay) pri2.push(r[0]);
+        else pri1.push(r[0]);
+        if (hasMultiLanes) twoLaneDividers.push(r[0]);
+      } else if (rType === 4) {
+        dirt.push(r[0]);
+      } else {
+        if (isTwoWay) loc2.push(r[0]);
+        else loc1.push(r[0]);
+        if (hasMultiLanes) twoLaneDividers.push(r[0]);
+      }
+    }
+
+    // Prefabs herdam a classe e a espessura da via conectada (sem trechos cinzas finos no meio da rodovia!)
+    for (const idx of visiblePrefabs) {
+      const pts = mapData.prefabCurves[idx][0];
+      const pCls = spatialGrid.prefabClasses[idx] || 3;
+      if (pCls === 1) hw1.push(pts);
+      else if (pCls === 2) pri1.push(pts);
+      else loc1.push(pts);
+    }
+
+    const strokeGroup = (arr, width, color) => {
+      if (arr.length === 0) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      for (let i = 0; i < arr.length; i++) drawPolylinePath(arr[i]);
+      ctx.stroke();
+    };
+
+    // 3A. Borda Externa Escura (Road Casing)
+    strokeGroup(loc1, wLoc1 + wCasingExtra, '#070a0f');
+    strokeGroup(loc2, wLoc2 + wCasingExtra, '#070a0f');
+    strokeGroup(dirt, wLoc1 + wCasingExtra, '#070a0f');
+    strokeGroup(pri1, wPri1 + wCasingExtra, '#070a0f');
+    strokeGroup(pri2, wPri2 + wCasingExtra, '#070a0f');
+    strokeGroup(hw1, wHw1 + wCasingExtra, '#070a0f');
+    strokeGroup(hw2, wHw2 + wCasingExtra, '#070a0f');
+
+    // 3B. Preenchimento das Vias
+    strokeGroup(dirt, wLoc1, '#9c7b56');
+    strokeGroup(loc1, wLoc1, '#8b9bb1');
+    strokeGroup(loc2, wLoc2, '#8b9bb1');
+    strokeGroup(pri1, wPri1, '#e5c967');
+    strokeGroup(pri2, wPri2, '#e5c967');
+    strokeGroup(hw1, wHw1, '#eea63a');
+    strokeGroup(hw2, wHw2, '#eea63a');
+
+    // 3C. Linha Divisória Central separando nitidamente as Duas Vias / Faixas
+    if (twoLaneDividers.length > 0 && camera.scale >= 0.18) {
+      strokeGroup(twoLaneDividers, Math.max(2.2, minPx(1.5)), 'rgba(12, 17, 25, 0.72)');
     }
   }
 
@@ -712,16 +851,29 @@ function renderFrame() {
     ctx.fill();
   }
 
-  // 5E. Rótulos das Cidades (Sempre em Pé!)
+  // 5E. Rótulos das Cidades (Sempre em Pé + Anti-Colisão em Zoom Afastado!)
   ctx.font = `800 ${Math.round(13.5 * dpr)}px "Segoe UI", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  const occupiedLabelBoxes = camera.scale < 0.12 ? [] : null;
   for (let i = 0; i < mapData.cities.length; i++) {
     const city = mapData.cities[i];
     const cx = city[3], cy = city[4];
     if (cx < minWx || cx > maxWx || cy < minWy || cy > maxWy) continue;
     const [sx, sy] = worldToScreen(cx, cy, w, h, anchorYRatio);
     if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
+
+    if (occupiedLabelBoxes) {
+      let overlaps = false;
+      for (let j = 0; j < occupiedLabelBoxes.length; j++) {
+        if (Math.abs(sx - occupiedLabelBoxes[j][0]) < 88 * dpr && Math.abs(sy - occupiedLabelBoxes[j][1]) < 24 * dpr) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (overlaps) continue;
+      occupiedLabelBoxes.push([sx, sy]);
+    }
 
     ctx.lineWidth = 4.2 * dpr;
     ctx.strokeStyle = 'rgba(10, 14, 20, 0.92)';
@@ -870,24 +1022,13 @@ function updateHud() {
   const nav = appState.navigation || {};
   const job = appState.job || {};
 
-  // Status de Conexão / Simulador
+  // Status de Conexão
   if (appState.connected) {
     connStatusDot.className = 'conn-dot online';
     connStatusText.textContent = appState.paused ? 'Jogo Pausado' : 'Conectado ao Jogo';
-  } else if (appState.simulating) {
-    connStatusDot.className = 'conn-dot sim';
-    connStatusText.textContent = 'Simulador Ativo';
   } else {
     connStatusDot.className = 'conn-dot offline';
     connStatusText.textContent = 'Aguardando Jogo (Auto)';
-  }
-
-  if (appState.simulating) {
-    btnSimToggle.classList.add('sim-running');
-    simBtnLabel.textContent = 'Parar Sim.';
-  } else {
-    btnSimToggle.classList.remove('sim-running');
-    simBtnLabel.textContent = 'Simular';
   }
 
   // Velocidade e Limite (Sempre km/h por padrão, mesmo no ATS!)
@@ -924,14 +1065,28 @@ function updateHud() {
   if (restMin <= 45) restAdvisorItem.classList.add('danger');
   else if (restMin <= 110) restAdvisorItem.classList.add('warn');
 
-  // Combustível
-  fuelValue.textContent = `${t.fuelAmount || 0} L (${t.fuelRangeKm || 0} km)`;
-  fuelAdvisorItem.classList.toggle('danger', !!t.fuelWarning);
+  // Combustível + Barra Dividida (Reserva 15% | Tanque Principal 85%)
+  const fuelAmt = Math.max(0, t.fuelAmount ?? 600);
+  const fuelCap = Math.max(100, t.fuelCapacity || Math.max(700, fuelAmt));
+  const fuelPct = Math.max(0, Math.min(1, fuelAmt / fuelCap));
+  const reserveRatio = 0.15; // 15% do tanque = Reserva oficial SCS
+
+  const resFillPct = Math.min(1, fuelPct / reserveRatio) * 100;
+  const mainFillPct = fuelPct > reserveRatio ? ((fuelPct - reserveRatio) / (1 - reserveRatio)) * 100 : 0;
+
+  if (fuelReserveFill) fuelReserveFill.style.width = `${resFillPct.toFixed(1)}%`;
+  if (fuelMainFill) {
+    fuelMainFill.style.width = `${mainFillPct.toFixed(1)}%`;
+    fuelMainFill.classList.toggle('low', fuelPct <= 0.30);
+  }
+
+  fuelValue.textContent = `${fuelAmt} L (${t.fuelRangeKm || 0} km)`;
+  fuelAdvisorItem.classList.toggle('danger', !!(t.fuelWarning || fuelPct <= reserveRatio));
 
   // Relógio do Jogo
   gameClockValue.textContent = nav.gameTimeFormatted || 'Seg 12:00';
 
-  // Card de Entrega (Job) — Peso sempre em kg (padrão brasileiro)!
+  // Card de Entrega (Job) — Sempre visível e aberto embaixo do tempo da rota!
   if (job.hasActiveJob) {
     jobStatusDot.className = job.mustPickUp ? 'job-status-dot pickup' : 'job-status-dot active';
     jobHeaderTitle.textContent = job.mustPickUp
@@ -958,9 +1113,9 @@ function updateHud() {
     jobDamageText.textContent = `0% / ${t.damagePercent || 0}%`;
   }
 
-  // Card de Manobra e Rota Ativa
+  // Card de Manobra e Tempo da Rota (Sempre visível acima do Card de Entrega)
   if (activeRoute) {
-    maneuverCard.classList.remove('hidden');
+    btnClearRoute.classList.remove('hidden');
     const man = activeRoute.nextManeuver || { type: 'straight', text: 'Siga na rodovia', distanceMeters: 0 };
     maneuverSvg.innerHTML = getManeuverSvgMarkup(man.type);
     maneuverDist.textContent = formatDistance(man.distanceMeters ?? 0, useMph);
@@ -986,7 +1141,16 @@ function updateHud() {
     const etaDate = new Date(Date.now() + (activeRoute.remainingSeconds || 0) * 1000);
     routeEtaClock.textContent = `${String(etaDate.getHours()).padStart(2, '0')}:${String(etaDate.getMinutes()).padStart(2, '0')}`;
   } else {
-    maneuverCard.classList.add('hidden');
+    btnClearRoute.classList.add('hidden');
+    maneuverSvg.innerHTML = getManeuverSvgMarkup('straight');
+    maneuverDist.textContent = '—';
+    maneuverText.textContent = 'Aguardando rota';
+    routeModeBadge.className = 'route-mode-badge';
+    routeModeBadge.textContent = 'GPS PRONTO';
+    routeTargetLabel.textContent = 'Sem destino ativo';
+    routeRemDist.textContent = useMph ? '-- mi' : '-- km';
+    routeRemTime.textContent = '-- min';
+    routeEtaClock.textContent = '--:--';
   }
 }
 
@@ -1270,19 +1434,6 @@ btnZoomOut.addEventListener('click', () => {
   camera.userZoomOverride = camera.targetScale;
 });
 
-btnSimToggle.addEventListener('click', async () => {
-  const res = await fetch('/api/sim/toggle', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ speedKph: 98 }),
-  });
-  const data = await res.json();
-  if (data.activeRoute) activeRoute = data.activeRoute;
-  appState.simulating = !!data.simulating;
-  if (appState.simulating && camera.mode === 'free') setCameraMode(camera.lastFollowMode || 'flat-north');
-  updateHud();
-});
-
 btnFullscreen.addEventListener('click', () => {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen?.();
@@ -1365,10 +1516,6 @@ btnReextractMaps.addEventListener('click', async () => {
     btnReextractMaps.textContent = 'Re-extrair Mapas (.scs)';
     btnReextractMaps.disabled = false;
   }
-});
-
-jobCardHeader.addEventListener('click', () => {
-  jobCard.classList.toggle('collapsed');
 });
 
 speedLimitSign.addEventListener('click', () => {

@@ -28,43 +28,79 @@
     </div>
   </div>
 
-  <!-- TOPO ESQUERDA: Card de Manobra Turn-by-Turn (Estilo Route Advisor) -->
-  <div id="maneuverCard" class="hud-panel maneuver-card hidden">
-    <div class="maneuver-main">
-      <div id="maneuverIconBox" class="maneuver-icon-box">
-        <svg id="maneuverSvg" viewBox="0 0 48 48" fill="none"></svg>
+  <!-- TOPO ESQUERDA: Informações da Rota + Card de Entrega (Sempre Visíveis) -->
+  <div class="top-left-stack">
+    <div id="maneuverCard" class="hud-panel maneuver-card">
+      <div class="maneuver-main">
+        <div id="maneuverIconBox" class="maneuver-icon-box">
+          <svg id="maneuverSvg" viewBox="0 0 48 48" fill="none"></svg>
+        </div>
+        <div class="maneuver-info">
+          <div id="maneuverDist" class="maneuver-dist">—</div>
+          <div id="maneuverText" class="maneuver-text">Aguardando rota</div>
+        </div>
       </div>
-      <div class="maneuver-info">
-        <div id="maneuverDist" class="maneuver-dist">0 m</div>
-        <div id="maneuverText" class="maneuver-text">Siga na via</div>
+      <div class="maneuver-footer">
+        <div class="route-badge-row">
+          <span id="routeModeBadge" class="route-mode-badge">GPS PRONTO</span>
+          <span id="routeTargetLabel" class="route-target-label">Sem destino ativo</span>
+        </div>
+        <div class="route-metrics-row">
+          <div class="metric-item">
+            <span class="metric-label">RESTANTE</span>
+            <span id="routeRemDist" class="metric-val">-- km</span>
+          </div>
+          <div class="metric-divider"></div>
+          <div class="metric-item">
+            <span class="metric-label">TEMPO EST.</span>
+            <span id="routeRemTime" class="metric-val">-- min</span>
+          </div>
+          <div class="metric-divider"></div>
+          <div class="metric-item">
+            <span class="metric-label">CHEGADA</span>
+            <span id="routeEtaClock" class="metric-val">--:--</span>
+          </div>
+          <button id="btnClearRoute" class="btn-clear-route hidden" title="Limpar rota manual / Retomar automática">✕</button>
+        </div>
       </div>
     </div>
-    <div class="maneuver-footer">
-      <div class="route-badge-row">
-        <span id="routeModeBadge" class="route-mode-badge">EM ENTREGA</span>
-        <span id="routeTargetLabel" class="route-target-label">—</span>
+
+    <!-- Card de Informações da Entrega (Sempre Aberto embaixo do tempo da rota) -->
+    <div id="jobCard" class="hud-panel job-card">
+      <div id="jobCardHeader" class="job-card-header">
+        <div class="job-header-left">
+          <span id="jobStatusDot" class="job-status-dot"></span>
+          <span id="jobHeaderTitle" class="job-header-title">Sem Entrega Ativa</span>
+        </div>
       </div>
-      <div class="route-metrics-row">
-        <div class="metric-item">
-          <span class="metric-label">RESTANTE</span>
-          <span id="routeRemDist" class="metric-val">-- km</span>
+      <div id="jobCardBody" class="job-card-body">
+        <div class="job-row">
+          <span class="job-lbl">Carga / Peso:</span>
+          <span id="jobCargoText" class="job-val">—</span>
         </div>
-        <div class="metric-divider"></div>
-        <div class="metric-item">
-          <span class="metric-label">TEMPO EST.</span>
-          <span id="routeRemTime" class="metric-val">-- min</span>
+        <div class="job-row">
+          <span class="job-lbl">Origem:</span>
+          <span id="jobOriginText" class="job-val">—</span>
         </div>
-        <div class="metric-divider"></div>
-        <div class="metric-item">
-          <span class="metric-label">CHEGADA</span>
-          <span id="routeEtaClock" class="metric-val">--:--</span>
+        <div class="job-row">
+          <span class="job-lbl">Destino:</span>
+          <span id="jobDestText" class="job-val">—</span>
         </div>
-        <button id="btnClearRoute" class="btn-clear-route" title="Limpar rota manual / Retomar automática">✕</button>
+        <div class="job-row-grid">
+          <div class="job-mini-box">
+            <span class="job-lbl">Valor do Frete</span>
+            <span id="jobIncomeText" class="job-val highlight-green">—</span>
+          </div>
+          <div class="job-mini-box">
+            <span class="job-lbl">Dano Carga / Cam.</span>
+            <span id="jobDamageText" class="job-val">0% / 0%</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- TOPO DIREITA: Controles Rápidos + Card Expansível de Entrega -->
+  <!-- TOPO DIREITA: Controles Rápidos -->
   <div class="top-right-stack">
     <div class="quick-toolbar hud-panel">
       <select id="mapSelector" class="map-selector" title="Selecionar Mapa">
@@ -94,13 +130,6 @@
         <span id="unitsBtnLabel">km/h · kg</span>
       </button>
 
-      <button id="btnSimToggle" class="tool-btn" title="Testar navegação com caminhão em movimento">
-        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none">
-          <polygon points="5 3 19 12 5 21 5 3"></polygon>
-        </svg>
-        <span id="simBtnLabel">Simular</span>
-      </button>
-
       <button id="btnSettingsModal" class="tool-btn icon-only" title="Configurações, Pastas dos Jogos e Status do Plugin">
         <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2" fill="none">
           <circle cx="12" cy="12" r="3"></circle>
@@ -113,41 +142,6 @@
           <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
         </svg>
       </button>
-    </div>
-
-    <!-- Card de Informações da Entrega -->
-    <div id="jobCard" class="hud-panel job-card collapsed">
-      <div id="jobCardHeader" class="job-card-header">
-        <div class="job-header-left">
-          <span id="jobStatusDot" class="job-status-dot"></span>
-          <span id="jobHeaderTitle" class="job-header-title">Sem Entrega Ativa</span>
-        </div>
-        <button id="btnToggleJobCard" class="btn-chevron" title="Expandir / Recolher detalhes do frete">▾</button>
-      </div>
-      <div id="jobCardBody" class="job-card-body">
-        <div class="job-row">
-          <span class="job-lbl">Carga / Peso:</span>
-          <span id="jobCargoText" class="job-val">—</span>
-        </div>
-        <div class="job-row">
-          <span class="job-lbl">Origem:</span>
-          <span id="jobOriginText" class="job-val">—</span>
-        </div>
-        <div class="job-row">
-          <span class="job-lbl">Destino:</span>
-          <span id="jobDestText" class="job-val">—</span>
-        </div>
-        <div class="job-row-grid">
-          <div class="job-mini-box">
-            <span class="job-lbl">Valor do Frete</span>
-            <span id="jobIncomeText" class="job-val highlight-green">—</span>
-          </div>
-          <div class="job-mini-box">
-            <span class="job-lbl">Dano Carga / Cam.</span>
-            <span id="jobDamageText" class="job-val">0% / 0%</span>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -224,11 +218,23 @@
 
     <div class="advisor-sep"></div>
 
-    <!-- Combustível e Autonomia -->
-    <div id="fuelAdvisorItem" class="advisor-item" title="Combustível no tanque e autonomia estimada">
+    <!-- Combustível, Barra Dividida (Reserva | Tanque) e Autonomia -->
+    <div id="fuelAdvisorItem" class="advisor-item fuel-advisor-item" title="Combustível no tanque (Reserva de 15% separada à esquerda)">
       <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
         <path d="M3 22L15 22M4 9L14 9M14 22L14 4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"></path>
       </svg>
+      <div class="fuel-gauge-group">
+        <div class="fuel-bar-track">
+          <div class="fuel-zone-reserve" title="Reserva (15%)">
+            <div id="fuelReserveFill" class="fuel-fill-reserve" style="width: 100%"></div>
+          </div>
+          <div class="fuel-reserve-divider" title="Divisória Tanque / Reserva"></div>
+          <div class="fuel-zone-main" title="Tanque Principal">
+            <div id="fuelMainFill" class="fuel-fill-main" style="width: 82%"></div>
+          </div>
+        </div>
+        <span class="fuel-res-tag">RES</span>
+      </div>
       <span id="fuelValue" class="advisor-val">600 L (1850 km)</span>
     </div>
 

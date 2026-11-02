@@ -1,0 +1,12 @@
+{
+  "port": 8765,
+  "ets2Path": "E:\\SteamLibrary\\steamapps\\common\\Euro Truck Simulator 2",
+  "atsPath": "T:\\SteamLibrary\\steamapps\\common\\American Truck Simulator",
+  "ets2ModPath": "C:\\Users\\Gabbie\\Documents\\Euro Truck Simulator 2\\mod",
+  "units": {
+    "speed": "kmh",
+    "distance": "km",
+    "weight": "kg"
+  },
+  "defaultCameraMode": "3d-heading"
+}

@@ -1,0 +1,4 @@
+dist/
+data/*.json
+node_modules/
+*.log

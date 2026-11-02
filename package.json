@@ -1,0 +1,10 @@
+{
+  "name": "truckmap-gps-nativo",
+  "version": "1.0.0",
+  "description": "Navegador GPS em tempo real extraído diretamente dos arquivos .scs do ETS2, Mapa RBR e ATS com 0.00m de desalinhamento.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "extract": "node extractor.mjs"
+  }
+}

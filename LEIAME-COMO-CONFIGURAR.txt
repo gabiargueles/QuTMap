@@ -1,0 +1,37 @@
+========================================================================
+  TRUCKMAP GPS NATIVO — ETS2 (MAPA RBR + EUROPA) E ATS (PORTA 8765)
+========================================================================
+
+1. COMO O SISTEMA FUNCIONA:
+   - Extrator Nativo (extractor.mjs): Lê diretamente os arquivos .scs e .zip
+     instalados no PC (incluindo o Mapa RBR e DLCs) para gerar a malha
+     viária exata do jogo com 0.00m de erro entre a pista e a rota do GPS.
+   - Plugin do Jogo (bin\scs-telemetry.dll): Copiado automaticamente para
+     <Jogo>\bin\win_x64\plugins\scs-telemetry.dll. Quando o ETS2 ou ATS abre,
+     ele envia em tempo real a posição, velocidade, marcha, combustível,
+     fadiga e dados da entrega.
+   - Ponte de Telemetria (bin\TruckNavTelemetry.exe): Lê os dados da memória
+     compartilhada do plugin e disponibiliza localmente na porta 30001.
+   - Servidor e Roteador A* (server.mjs + TruckMap.exe): Roda na porta 8765
+     (nunca usa 3050, 3051 ou 3060), lê os saves do jogo para pegar rotas
+     marcadas à mão e serve o mapa ao vivo para a 2ª tela e para o Tablet.
+
+2. COMO USAR A VERSÃO PORTÁTIL (TruckMap-Portatil):
+   - Basta extrair a pasta "TruckMap-Portatil" em qualquer lugar e abrir
+     o arquivo "TruckMap.exe" (ou "Iniciar-TruckMap.bat").
+   - Se estiver em outro PC onde os mapas ainda não foram extraídos, clique
+     no botão "Atualizar / Extrair Mapas (.scs)" dentro do TruckMap.exe
+     (ou pelo botão de engrenagem ⚙️ no canto superior direito do mapa).
+
+3. COMO USAR O INSTALADOR (TruckMap-Instalador.exe):
+   - Execute "TruckMap-Instalador.exe", confirme a pasta de instalação e as
+     pastas do ETS2 e ATS, e clique em "Instalar Agora".
+   - Ele cria os atalhos na Área de Trabalho e no Menu Iniciar, instala o
+     plugin scs-telemetry.dll nos jogos e configura o serviço para iniciar
+     sozinho junto com o Windows (ficando ao lado do relógio na bandeja).
+
+4. ENDEREÇOS DE ACESSO:
+   - Na 2ª Tela do PC:       http://127.0.0.1:8765
+   - No Tablet / Celular:    http://<IP-DO-SEU-PC>:8765
+     (No seu PC atual:       http://192.168.1.103:8765)
+========================================================================

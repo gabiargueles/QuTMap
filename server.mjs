@@ -1093,14 +1093,26 @@ function updateRouteProgressAndCheckDeviation() {
   }
   route.nextManeuver = nextMan;
 
-  // Se chegou ao destino (< 32m do final) em rota manual, limpa
+  // Se chegou ao destino (< 35m do final) em rota manual, fixa status de chegada concluída
   const endX = pts[(numPts - 1) * 2];
   const endY = pts[(numPts - 1) * 2 + 1];
-  if (Math.hypot(tx - endX, ty - endY) < 32 && bestIdx >= numPts - 8) {
+  const distToEnd = Math.hypot(tx - endX, ty - endY);
+  if (distToEnd < 35 && bestIdx >= numPts - 8) {
     if (route.mode === 'manual') {
-      state.activeRoute = null;
+      route.arrived = true;
+      route.remainingMeters = 0;
+      route.remainingSeconds = 0;
+      route.nextManeuver = {
+        type: 'arrive',
+        text: 'Você chegou ao destino!',
+        distanceMeters: 0,
+      };
       return;
     }
+  } else if (route.arrived && distToEnd > 80) {
+    // Afastou-se mais de 80m do destino final após concluir: limpa a rota
+    state.activeRoute = null;
+    return;
   }
 
   // Recálculo automático se o caminhão desviou > 26m da linha da rota
@@ -1554,6 +1566,7 @@ function buildCompactStatePayload() {
           totalDurationSeconds: r.totalDurationSeconds,
           nextManeuver: r.nextManeuver,
           stops: r.stops,
+          arrived: !!r.arrived,
         }
       : null,
   });

@@ -75,6 +75,8 @@ html, body {
   border: 1px solid var(--panel-border);
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 /* Overlay de Carregamento */
@@ -140,6 +142,7 @@ html, body {
   width: 100%;
   overflow: hidden;
   border-left: 4px solid var(--scs-amber);
+  transform: translateZ(0);
 }
 
 .maneuver-main {
@@ -225,6 +228,12 @@ html, body {
   background: rgba(16, 185, 129, 0.2);
   color: #34d399;
   border-color: rgba(16, 185, 129, 0.4);
+}
+
+.route-mode-badge.arrived {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border-color: rgba(59, 130, 246, 0.4);
 }
 
 .route-target-label {

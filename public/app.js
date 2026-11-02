@@ -314,11 +314,11 @@ function buildClientSpatialGrid(data) {
 // do mapa é desenhado UMA vez numa imagem 512x512 e depois só é "colado" na tela.
 // ============================================================================
 const TILE_PX = 512;
-const TILE_BASE_SCALE = 0.32; // px por metro do nível 0
-const TILE_MAX_LEVEL = 7;
-const TILE_PROTECTED_LEVEL = 6; // níveis grossos pré-carregados nunca são descartados
-const TILE_CACHE_MAX = 140;
-const TILE_RENDER_BUDGET_MS = 8;
+const TILE_BASE_SCALE = 0.16; // px por metro do nível 0 (transição natural com escala < 0.16)
+const TILE_MAX_LEVEL = 4;
+const TILE_PROTECTED_LEVEL = 2; // níveis 2, 3 e 4 cobrem todo o mapa afastado e nunca são descartados
+const TILE_CACHE_MAX = 200;
+const TILE_RENDER_BUDGET_MS = 6;
 const TILE_ROAD_COLOR = '#e2b857';
 
 const tileCache = new Map();
@@ -354,18 +354,26 @@ function renderTile(L, tx, ty) {
   tctx.lineCap = 'round';
   tctx.lineJoin = 'round';
   tctx.strokeStyle = TILE_ROAD_COLOR;
-  tctx.lineWidth = Math.max(15, 4 / levelScale);
+  tctx.lineWidth = Math.max(16, 4.2 / levelScale);
 
-  // Chunks são indexados pelo centro da estrada, então ampliamos 1 chunk de margem
-  const cs = spatialGrid.LOD_CHUNK_SIZE;
-  const cx0 = Math.floor(x0 / cs) - 1;
-  const cx1 = Math.floor((x0 + tileWorld) / cs) + 1;
-  const cy0 = Math.floor(y0 / cs) - 1;
-  const cy1 = Math.floor((y0 + tileWorld) / cs) + 1;
-  for (let cx = cx0; cx <= cx1; cx++) {
-    for (let cy = cy0; cy <= cy1; cy++) {
-      const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
-      if (ch && ch.hasRoads) tctx.stroke(ch.path);
+  if (L >= 3) {
+    // Zoom muito afastado (mapa inteiro ou meio mapa): clipa e desenha o caminho global único
+    tctx.beginPath();
+    tctx.rect(x0, y0, tileWorld, tileWorld);
+    tctx.clip();
+    tctx.stroke(spatialGrid.globalAllPath);
+  } else {
+    // Zoom intermediário: varre apenas os chunks que intersectam o tile
+    const cs = spatialGrid.LOD_CHUNK_SIZE;
+    const cx0 = Math.floor(x0 / cs);
+    const cx1 = Math.floor((x0 + tileWorld) / cs);
+    const cy0 = Math.floor(y0 / cs);
+    const cy1 = Math.floor((y0 + tileWorld) / cs);
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cy = cy0; cy <= cy1; cy++) {
+        const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
+        if (ch && ch.hasRoads) tctx.stroke(ch.path);
+      }
     }
   }
   return cnv;
@@ -440,7 +448,7 @@ function drawLodTiles(effectiveScale, w, h, anchorYRatio) {
     for (let tx = tx0; tx <= tx1; tx++) {
       const key = tileKey(L, tx, ty);
       let entry = tileCache.get(key);
-      if (!entry && (renderedThisFrame === 0 || performance.now() - t0 < TILE_RENDER_BUDGET_MS)) {
+      if (!entry && renderedThisFrame < 2 && (performance.now() - t0 < TILE_RENDER_BUDGET_MS)) {
         entry = { cnv: renderTile(L, tx, ty), used: 0, L };
         tileCache.set(key, entry);
         renderedThisFrame++;
@@ -467,20 +475,27 @@ function scheduleTilePrewarm(bounds) {
   const queue = [];
   for (let L = TILE_MAX_LEVEL; L >= TILE_PROTECTED_LEVEL; L--) {
     const tileWorld = TILE_PX / (TILE_BASE_SCALE / (1 << L));
-    for (let ty = Math.floor(bounds[1] / tileWorld); ty <= Math.floor(bounds[3] / tileWorld); ty++) {
-      for (let tx = Math.floor(bounds[0] / tileWorld); tx <= Math.floor(bounds[2] / tileWorld); tx++) {
+    const tx0 = Math.floor(bounds[0] / tileWorld);
+    const tx1 = Math.floor(bounds[2] / tileWorld);
+    const ty0 = Math.floor(bounds[1] / tileWorld);
+    const ty1 = Math.floor(bounds[3] / tileWorld);
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
         queue.push([L, tx, ty]);
       }
     }
   }
   const step = () => {
     if (gen !== tileGeneration || queue.length === 0 || !spatialGrid) return;
-    const [L, tx, ty] = queue.shift();
-    const key = tileKey(L, tx, ty);
-    if (!tileCache.has(key)) tileCache.set(key, { cnv: renderTile(L, tx, ty), used: 0, L });
-    setTimeout(step, 16);
+    const batch = Math.min(3, queue.length);
+    for (let i = 0; i < batch; i++) {
+      const [L, tx, ty] = queue.shift();
+      const key = tileKey(L, tx, ty);
+      if (!tileCache.has(key)) tileCache.set(key, { cnv: renderTile(L, tx, ty), used: 0, L });
+    }
+    if (queue.length > 0) setTimeout(step, 8);
   };
-  setTimeout(step, 300);
+  setTimeout(step, 60);
 }
 
 // ============================================================================
@@ -955,31 +970,48 @@ function renderFrame() {
   ctx.font = `800 ${Math.round(13.5 * dpr)}px "Segoe UI", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const occupiedLabelBoxes = camera.scale < 0.12 ? [] : null;
-  for (let i = 0; i < mapData.cities.length; i++) {
-    const city = mapData.cities[i];
-    const cx = city[3], cy = city[4];
-    if (cx < minWx || cx > maxWx || cy < minWy || cy > maxWy) continue;
-    const [sx, sy] = worldToScreen(cx, cy, w, h, anchorYRatio);
-    if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
-
-    if (occupiedLabelBoxes) {
-      let overlaps = false;
-      for (let j = 0; j < occupiedLabelBoxes.length; j++) {
-        if (Math.abs(sx - occupiedLabelBoxes[j][0]) < 88 * dpr && Math.abs(sy - occupiedLabelBoxes[j][1]) < 24 * dpr) {
-          overlaps = true;
-          break;
-        }
-      }
-      if (overlaps) continue;
-      occupiedLabelBoxes.push([sx, sy]);
+  if (camera.scale < 0.05) {
+    // Zoom muito afastado: mostra apenas cidades principais espaçadas (60 FPS garantido)
+    const step = Math.max(1, Math.floor(mapData.cities.length / 32));
+    for (let i = 0; i < mapData.cities.length; i += step) {
+      const city = mapData.cities[i];
+      const cx = city[3], cy = city[4];
+      if (cx < minWx || cx > maxWx || cy < minWy || cy > maxWy) continue;
+      const [sx, sy] = worldToScreen(cx, cy, w, h, anchorYRatio);
+      if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
+      ctx.lineWidth = 4.2 * dpr;
+      ctx.strokeStyle = 'rgba(10, 14, 20, 0.92)';
+      ctx.strokeText(city[1], sx, sy);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(city[1], sx, sy);
     }
+  } else {
+    const occupiedLabelBoxes = camera.scale < 0.14 ? [] : null;
+    for (let i = 0; i < mapData.cities.length; i++) {
+      const city = mapData.cities[i];
+      const cx = city[3], cy = city[4];
+      if (cx < minWx || cx > maxWx || cy < minWy || cy > maxWy) continue;
+      const [sx, sy] = worldToScreen(cx, cy, w, h, anchorYRatio);
+      if (sx < -60 || sx > w + 60 || sy < -30 || sy > h + 30) continue;
 
-    ctx.lineWidth = 4.2 * dpr;
-    ctx.strokeStyle = 'rgba(10, 14, 20, 0.92)';
-    ctx.strokeText(city[1], sx, sy);
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillText(city[1], sx, sy);
+      if (occupiedLabelBoxes) {
+        let overlaps = false;
+        for (let j = 0; j < occupiedLabelBoxes.length; j++) {
+          if (Math.abs(sx - occupiedLabelBoxes[j][0]) < 88 * dpr && Math.abs(sy - occupiedLabelBoxes[j][1]) < 24 * dpr) {
+            overlaps = true;
+            break;
+          }
+        }
+        if (overlaps) continue;
+        occupiedLabelBoxes.push([sx, sy]);
+      }
+
+      ctx.lineWidth = 4.2 * dpr;
+      ctx.strokeStyle = 'rgba(10, 14, 20, 0.92)';
+      ctx.strokeText(city[1], sx, sy);
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillText(city[1], sx, sy);
+    }
   }
 
   // 6. SETA DO CAMINHÃO (ESTILO SCS NAVIGATION ARROW COM CONE DE LUZ)
@@ -1115,6 +1147,22 @@ function playOverspeedBeep() {
   } catch { /* ignore */ }
 }
 
+let currentSvgMarkupType = null;
+function setManeuverSvg(type) {
+  if (currentSvgMarkupType !== type) {
+    currentSvgMarkupType = type;
+    maneuverSvg.innerHTML = getManeuverSvgMarkup(type);
+  }
+}
+
+function setCachedText(el, text) {
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+function setCachedClass(el, cls) {
+  if (el && el.className !== cls) el.className = cls;
+}
+
 function updateHud() {
   const isAts = currentMapId === 'ats';
   const useMph = useImperialUnits;
@@ -1124,34 +1172,36 @@ function updateHud() {
 
   // Status de Conexão
   if (appState.connected) {
-    connStatusDot.className = 'conn-dot online';
-    connStatusText.textContent = appState.paused ? 'Jogo Pausado' : 'Conectado ao Jogo';
+    setCachedClass(connStatusDot, 'conn-dot online');
+    setCachedText(connStatusText, appState.paused ? 'Jogo Pausado' : 'Conectado ao Jogo');
   } else {
-    connStatusDot.className = 'conn-dot offline';
-    connStatusText.textContent = 'Aguardando Jogo (Auto)';
+    setCachedClass(connStatusDot, 'conn-dot offline');
+    setCachedText(connStatusText, 'Aguardando Jogo (Auto)');
   }
 
   // Velocidade e Limite (Sempre km/h por padrão, mesmo no ATS!)
   const spd = useMph ? (t.speedMph || Math.round((t.speedKph || 0) * 0.621371)) : (t.speedKph || 0);
   const limit = useMph ? (nav.speedLimitMph || Math.round((nav.speedLimitKph || 0) * 0.621371)) : (nav.speedLimitKph || 0);
-  currentSpeedValue.textContent = spd;
-  speedUnitLabel.textContent = useMph ? 'mph' : 'km/h';
-  speedLimitValue.textContent = limit > 0 ? limit : '—';
-  unitsBtnLabel.textContent = useMph ? 'mph · lb' : 'km/h · kg';
+  setCachedText(currentSpeedValue, String(spd));
+  setCachedText(speedUnitLabel, useMph ? 'mph' : 'km/h');
+  setCachedText(speedLimitValue, limit > 0 ? String(limit) : '—');
+  setCachedText(unitsBtnLabel, useMph ? 'mph · lb' : 'km/h · kg');
 
   const gear = t.gear || 0;
-  currentGearBadge.textContent = gear > 0 ? `D${gear}` : gear < 0 ? `R${Math.abs(gear)}` : 'N';
+  setCachedText(currentGearBadge, gear > 0 ? `D${gear}` : gear < 0 ? `R${Math.abs(gear)}` : 'N');
 
   if (t.cruiseControlActive && t.cruiseControlKph > 0) {
     cruiseControlBadge.classList.remove('hidden');
-    cruiseSpeedVal.textContent = useMph ? Math.round(t.cruiseControlKph * 0.621371) : t.cruiseControlKph;
+    setCachedText(cruiseSpeedVal, String(useMph ? Math.round(t.cruiseControlKph * 0.621371) : t.cruiseControlKph));
   } else {
     cruiseControlBadge.classList.add('hidden');
   }
 
   if (limit > 0 && spd > limit + (useMph ? 3 : 5)) {
-    speedometerBox.classList.add('overspeed');
-    playOverspeedBeep();
+    if (!speedometerBox.classList.contains('overspeed')) {
+      speedometerBox.classList.add('overspeed');
+      playOverspeedBeep();
+    }
   } else {
     speedometerBox.classList.remove('overspeed');
   }
@@ -1160,10 +1210,11 @@ function updateHud() {
   const restMin = nav.nextRestStopMinutes ?? 660;
   const rHours = Math.max(0, Math.floor(restMin / 60));
   const rMins = Math.max(0, restMin % 60);
-  restStopValue.textContent = `${String(rHours).padStart(2, '0')}h ${String(rMins).padStart(2, '0')}m`;
-  restAdvisorItem.classList.remove('warn', 'danger');
-  if (restMin <= 45) restAdvisorItem.classList.add('danger');
-  else if (restMin <= 110) restAdvisorItem.classList.add('warn');
+  setCachedText(restStopValue, `${String(rHours).padStart(2, '0')}h ${String(rMins).padStart(2, '0')}m`);
+  const restDanger = restMin <= 45;
+  const restWarn = !restDanger && restMin <= 110;
+  restAdvisorItem.classList.toggle('danger', restDanger);
+  restAdvisorItem.classList.toggle('warn', restWarn);
 
   // Combustível + Barra Dividida (Reserva 15% | Tanque Principal 85%)
   const fuelAmt = Math.max(0, t.fuelAmount ?? 600);
@@ -1174,83 +1225,95 @@ function updateHud() {
   const resFillPct = Math.min(1, fuelPct / reserveRatio) * 100;
   const mainFillPct = fuelPct > reserveRatio ? ((fuelPct - reserveRatio) / (1 - reserveRatio)) * 100 : 0;
 
-  if (fuelReserveFill) fuelReserveFill.style.width = `${resFillPct.toFixed(1)}%`;
+  const resWidthStr = `${resFillPct.toFixed(1)}%`;
+  if (fuelReserveFill && fuelReserveFill.style.width !== resWidthStr) {
+    fuelReserveFill.style.width = resWidthStr;
+  }
   if (fuelMainFill) {
-    fuelMainFill.style.width = `${mainFillPct.toFixed(1)}%`;
+    const mainWidthStr = `${mainFillPct.toFixed(1)}%`;
+    if (fuelMainFill.style.width !== mainWidthStr) fuelMainFill.style.width = mainWidthStr;
     fuelMainFill.classList.toggle('low', fuelPct <= 0.30);
   }
 
-  fuelValue.textContent = `${fuelAmt} L (${t.fuelRangeKm || 0} km)`;
+  setCachedText(fuelValue, `${fuelAmt} L (${t.fuelRangeKm || 0} km)`);
   fuelAdvisorItem.classList.toggle('danger', !!(t.fuelWarning || fuelPct <= reserveRatio));
 
   // Relógio do Jogo
-  gameClockValue.textContent = nav.gameTimeFormatted || 'Seg 12:00';
+  setCachedText(gameClockValue, nav.gameTimeFormatted || 'Seg 12:00');
 
   // Card de Entrega (Job) — Sempre visível e aberto embaixo do tempo da rota!
   if (job.hasActiveJob) {
-    jobStatusDot.className = job.mustPickUp ? 'job-status-dot pickup' : 'job-status-dot active';
-    jobHeaderTitle.textContent = job.mustPickUp
+    setCachedClass(jobStatusDot, job.mustPickUp ? 'job-status-dot pickup' : 'job-status-dot active');
+    setCachedText(jobHeaderTitle, job.mustPickUp
       ? `Coletar: ${job.sourceCity}`
-      : `Entrega: ${job.destCity}`;
+      : `Entrega: ${job.destCity}`);
     const massStr = job.cargoMassKg
       ? useMph
         ? ` (${Math.round(job.cargoMassKg * 2.20462).toLocaleString('pt-BR')} lb)`
         : ` (${Math.round(job.cargoMassKg).toLocaleString('pt-BR')} kg)`
       : '';
-    jobCargoText.textContent = `${job.cargoName || 'Carga'}${massStr}`;
-    jobOriginText.textContent = `${job.sourceCompany} · ${job.sourceCity}`;
-    jobDestText.textContent = `${job.destCompany} · ${job.destCity}`;
+    setCachedText(jobCargoText, `${job.cargoName || 'Carga'}${massStr}`);
+    setCachedText(jobOriginText, `${job.sourceCompany} · ${job.sourceCity}`);
+    setCachedText(jobDestText, `${job.destCompany} · ${job.destCity}`);
     const currency = currentMapId === 'ets2_rbr' ? 'R$' : isAts ? 'US$' : '€';
-    jobIncomeText.textContent = `${currency} ${(job.income || 0).toLocaleString('pt-BR')}`;
-    jobDamageText.textContent = `${job.cargoDamagePercent || 0}% / ${t.damagePercent || 0}%`;
+    setCachedText(jobIncomeText, `${currency} ${(job.income || 0).toLocaleString('pt-BR')}`);
+    setCachedText(jobDamageText, `${job.cargoDamagePercent || 0}% / ${t.damagePercent || 0}%`);
   } else {
-    jobStatusDot.className = 'job-status-dot';
-    jobHeaderTitle.textContent = 'Sem Entrega Ativa (Livre)';
-    jobCargoText.textContent = '—';
-    jobOriginText.textContent = '—';
-    jobDestText.textContent = '—';
-    jobIncomeText.textContent = '—';
-    jobDamageText.textContent = `0% / ${t.damagePercent || 0}%`;
+    setCachedClass(jobStatusDot, 'job-status-dot');
+    setCachedText(jobHeaderTitle, 'Sem Entrega Ativa (Livre)');
+    setCachedText(jobCargoText, '—');
+    setCachedText(jobOriginText, '—');
+    setCachedText(jobDestText, '—');
+    setCachedText(jobIncomeText, '—');
+    setCachedText(jobDamageText, `0% / ${t.damagePercent || 0}%`);
   }
 
   // Card de Manobra e Tempo da Rota (Sempre visível acima do Card de Entrega)
   if (activeRoute) {
     btnClearRoute.classList.remove('hidden');
-    const man = activeRoute.nextManeuver || { type: 'straight', text: 'Siga na rodovia', distanceMeters: 0 };
-    maneuverSvg.innerHTML = getManeuverSvgMarkup(man.type);
-    maneuverDist.textContent = formatDistance(man.distanceMeters ?? 0, useMph);
-    maneuverText.textContent = man.text || 'Siga na via';
+    const isArrived = !!activeRoute.arrived;
+    const man = activeRoute.nextManeuver || (isArrived
+      ? { type: 'arrive', text: 'Você chegou ao destino!', distanceMeters: 0 }
+      : { type: 'straight', text: 'Siga na rodovia', distanceMeters: 0 });
 
-    routeModeBadge.className = 'route-mode-badge';
-    if (activeRoute.mode === 'job-pickup') {
-      routeModeBadge.classList.add('pickup');
-      routeModeBadge.textContent = 'INDO COLETAR';
+    setManeuverSvg(man.type);
+    setCachedText(maneuverDist, isArrived ? '0 m' : formatDistance(man.distanceMeters ?? 0, useMph));
+    setCachedText(maneuverText, man.text || (isArrived ? 'Você chegou ao destino!' : 'Siga na via'));
+
+    if (isArrived) {
+      setCachedClass(routeModeBadge, 'route-mode-badge arrived');
+      setCachedText(routeModeBadge, 'CHEGOU');
+    } else if (activeRoute.mode === 'job-pickup') {
+      setCachedClass(routeModeBadge, 'route-mode-badge pickup');
+      setCachedText(routeModeBadge, 'INDO COLETAR');
     } else if (activeRoute.mode === 'manual') {
-      routeModeBadge.classList.add('manual');
-      routeModeBadge.textContent = 'ROTA MANUAL';
+      setCachedClass(routeModeBadge, 'route-mode-badge manual');
+      setCachedText(routeModeBadge, 'ROTA MANUAL');
     } else if (activeRoute.mode === 'save-waypoints') {
-      routeModeBadge.textContent = 'MAPA DO JOGO';
+      setCachedClass(routeModeBadge, 'route-mode-badge');
+      setCachedText(routeModeBadge, 'MAPA DO JOGO');
     } else {
-      routeModeBadge.textContent = 'EM ENTREGA';
+      setCachedClass(routeModeBadge, 'route-mode-badge');
+      setCachedText(routeModeBadge, 'EM ENTREGA');
     }
 
-    routeTargetLabel.textContent = activeRoute.label || 'Destino';
-    routeRemDist.textContent = formatDistance(activeRoute.remainingMeters || 0, useMph);
-    routeRemTime.textContent = formatDuration(activeRoute.remainingSeconds || 0);
+    setCachedText(routeTargetLabel, activeRoute.label || 'Destino');
+    setCachedText(routeRemDist, isArrived ? (useMph ? '0 mi' : '0 m') : formatDistance(activeRoute.remainingMeters || 0, useMph));
+    setCachedText(routeRemTime, isArrived ? '0 min' : formatDuration(activeRoute.remainingSeconds || 0));
 
     const etaDate = new Date(Date.now() + (activeRoute.remainingSeconds || 0) * 1000);
-    routeEtaClock.textContent = `${String(etaDate.getHours()).padStart(2, '0')}:${String(etaDate.getMinutes()).padStart(2, '0')}`;
+    setCachedText(routeEtaClock, isArrived ? 'Agora' : `${String(etaDate.getHours()).padStart(2, '0')}:${String(etaDate.getMinutes()).padStart(2, '0')}`);
   } else {
     btnClearRoute.classList.add('hidden');
-    maneuverSvg.innerHTML = getManeuverSvgMarkup('straight');
-    maneuverDist.textContent = '—';
-    maneuverText.textContent = 'Aguardando rota';
-    routeModeBadge.className = 'route-mode-badge';
-    routeModeBadge.textContent = 'GPS PRONTO';
-    routeTargetLabel.textContent = 'Sem destino ativo';
-    routeRemDist.textContent = useMph ? '-- mi' : '-- km';
-    routeRemTime.textContent = '-- min';
-    routeEtaClock.textContent = '--:--';
+    setManeuverSvg('straight');
+    setCachedText(maneuverDist, '—');
+    setCachedText(maneuverText, 'Aguardando rota');
+    setCachedClass(routeModeBadge, 'route-mode-badge');
+    setCachedText(routeModeBadge, 'GPS PRONTO');
+    setCachedText(routeTargetLabel, 'Sem destino ativo');
+    setCachedText(routeRemDist, useMph ? '-- mi' : '-- km');
+    setCachedText(routeRemTime, '-- min');
+    setCachedText(routeEtaClock, '--:--');
   }
 }
 
@@ -1762,12 +1825,17 @@ function connectLiveSocket() {
           await loadMap(msg.activeMapId);
         }
         appState = msg;
-        if (msg.route && activeRoute && msg.route.id === activeRoute.id) {
-          activeRoute.progressIdx = msg.route.progressIdx;
-          activeRoute.remainingMeters = msg.route.remainingMeters;
-          activeRoute.remainingSeconds = msg.route.remainingSeconds;
-          activeRoute.nextManeuver = msg.route.nextManeuver;
-        } else if (!msg.route) {
+        if (msg.route) {
+          if (!activeRoute || activeRoute.id !== msg.route.id) {
+            activeRoute = msg.route;
+          } else {
+            activeRoute.progressIdx = msg.route.progressIdx;
+            activeRoute.remainingMeters = msg.route.remainingMeters;
+            activeRoute.remainingSeconds = msg.route.remainingSeconds;
+            activeRoute.nextManeuver = msg.route.nextManeuver;
+            activeRoute.arrived = msg.route.arrived;
+          }
+        } else if (activeRoute && activeRoute.mode !== 'manual') {
           activeRoute = null;
         }
         updateHud();

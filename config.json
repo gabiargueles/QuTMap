@@ -8,5 +8,5 @@
     "distance": "km",
     "weight": "kg"
   },
-  "defaultCameraMode": "3d-heading"
+  "defaultCameraMode": "flat-heading"
 }

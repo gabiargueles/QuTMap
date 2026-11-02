@@ -736,7 +736,7 @@ html, body {
   z-index: 20;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: space-evenly;
   padding: 0 18px;
 }
 

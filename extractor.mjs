@@ -1295,14 +1295,14 @@ export function buildMapDataset(config) {
   for (const [, buf] of sectorBuffers) {
     const sec = parseSectorFast(buf);
     for (const n of sec.nodes) allNodes.set(n.uid, n);
-    for (const r of sec.roads) if (!r.hidden) allRoads.push(r);
-    for (const p of sec.prefabs) if (!p.hidden) allPrefabs.set(p.uid, p);
+    for (const r of sec.roads) allRoads.push(r);
+    for (const p of sec.prefabs) allPrefabs.set(p.uid, p);
     for (const c of sec.cities) allCities.push(c);
     for (const co of sec.companies) allCompanies.push(co);
     for (const s of sec.services) allServices.push(s);
     for (const ov of sec.overlays) allOverlays.push(ov);
     for (const fe of sec.ferries) allFerries.push(fe);
-    for (const ma of sec.mapAreas) if (!ma.hidden) allMapAreas.push(ma);
+    for (const ma of sec.mapAreas) allMapAreas.push(ma);
   }
 
   console.log(`Itens brutos: ${allRoads.length} estradas, ${allPrefabs.size} prefabs, ${allNodes.size} nós, ${allCompanies.length} empresas`);

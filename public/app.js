@@ -231,30 +231,15 @@ function buildClientSpatialGrid(data) {
     return [minX, minY, maxX, maxY];
   };
 
-  // Mapa rápido de extremidades de estradas para que os prefabs herdem a cor/largura da rodovia conectada
-  const endpointClassMap = new Map();
-  const snapKey = (x, y) => `${Math.round(x / 8)},${Math.round(y / 8)}`;
-  const recordEndpoint = (x, y, cls) => {
-    const k = snapKey(x, y);
-    const cur = endpointClassMap.get(k);
-    if (cur === undefined || cls < cur) endpointClassMap.set(k, cls);
-  };
-
-  const globalHwPath = new Path2D();
-  const globalPriPath = new Path2D();
-  const globalLocPath = new Path2D();
+  const globalAllPath = new Path2D();
 
   const getLodChunk = (cx, cy) => {
     const k = `${cx},${cy}`;
     let ch = lodChunks.get(k);
     if (!ch) {
       ch = {
-        hwPath: new Path2D(),
-        priPath: new Path2D(),
-        locPath: new Path2D(),
-        hasHw: false,
-        hasPri: false,
-        hasLoc: false,
+        path: new Path2D(),
+        hasRoads: false,
       };
       lodChunks.set(k, ch);
     }
@@ -275,11 +260,6 @@ function buildClientSpatialGrid(data) {
     const r = data.roads[i];
     const pts = r[0];
     if (!pts || pts.length < 4) continue;
-    const rType = r[1];
-    const cls = rType === 0 || rType === 1 ? 1 : rType === 2 ? 2 : 3;
-
-    recordEndpoint(pts[0], pts[1], cls);
-    recordEndpoint(pts[pts.length - 2], pts[pts.length - 1], cls);
 
     const [minX, minY, maxX, maxY] = computeBBox(pts);
     insertBBox(roadsGrid, minX, minY, maxX, maxY, i);
@@ -288,24 +268,11 @@ function buildClientSpatialGrid(data) {
     const cy = Math.floor(((minY + maxY) * 0.5) / LOD_CHUNK_SIZE);
     const ch = getLodChunk(cx, cy);
 
-    if (cls === 1) {
-      addSimplifiedToPath(ch.hwPath, pts);
-      addSimplifiedToPath(globalHwPath, pts);
-      ch.hasHw = true;
-    } else if (cls === 2) {
-      addSimplifiedToPath(ch.priPath, pts);
-      addSimplifiedToPath(globalPriPath, pts);
-      ch.hasPri = true;
-    } else {
-      addSimplifiedToPath(ch.locPath, pts);
-      if (Math.hypot(maxX - minX, maxY - minY) > 65) {
-        addSimplifiedToPath(globalLocPath, pts);
-      }
-      ch.hasLoc = true;
-    }
+    addSimplifiedToPath(ch.path, pts);
+    addSimplifiedToPath(globalAllPath, pts);
+    ch.hasRoads = true;
   }
 
-  const prefabClasses = new Uint8Array(data.prefabCurves.length);
   for (let i = 0; i < data.prefabCurves.length; i++) {
     const pf = data.prefabCurves[i];
     const pts = pf[0];
@@ -313,23 +280,12 @@ function buildClientSpatialGrid(data) {
     const [minX, minY, maxX, maxY] = computeBBox(pts);
     insertBBox(prefabsGrid, minX, minY, maxX, maxY, i);
 
-    const cStart = endpointClassMap.get(snapKey(pts[0], pts[1])) || 3;
-    const cEnd = endpointClassMap.get(snapKey(pts[pts.length - 2], pts[pts.length - 1])) || 3;
-    const bestCls = pf[1] === 1 ? 1 : Math.min(cStart, cEnd);
-    prefabClasses[i] = bestCls;
-
     const cx = Math.floor(((minX + maxX) * 0.5) / LOD_CHUNK_SIZE);
     const cy = Math.floor(((minY + maxY) * 0.5) / LOD_CHUNK_SIZE);
     const ch = getLodChunk(cx, cy);
-    if (bestCls === 1) {
-      addSimplifiedToPath(ch.hwPath, pts);
-      addSimplifiedToPath(globalHwPath, pts);
-      ch.hasHw = true;
-    } else if (bestCls === 2) {
-      addSimplifiedToPath(ch.priPath, pts);
-      addSimplifiedToPath(globalPriPath, pts);
-      ch.hasPri = true;
-    }
+    addSimplifiedToPath(ch.path, pts);
+    addSimplifiedToPath(globalAllPath, pts);
+    ch.hasRoads = true;
   }
 
   for (let i = 0; i < data.polygons.length; i++) {
@@ -343,12 +299,9 @@ function buildClientSpatialGrid(data) {
     roadsGrid,
     prefabsGrid,
     polysGrid,
-    prefabClasses,
     lodChunks,
     LOD_CHUNK_SIZE,
-    globalHwPath,
-    globalPriPath,
-    globalLocPath,
+    globalAllPath,
   };
 }
 
@@ -492,67 +445,43 @@ function renderFrame() {
   ctx.scale(effectiveScale, effectiveScale);
   ctx.translate(-camera.x, -camera.y);
 
+  // Cor única para 100% do mapa (sem diferenciar áreas visitadas/não visitadas e sem degraus)
+  const UNIFORM_ROAD_COLOR = '#e2b857';
+  const UNIFORM_CASING_COLOR = '#070a0f';
+
   // ==========================================================================
   // MODO OTIMIZADO (LOD PATH2D GPU) QUANDO O ZOOM ESTÁ AFASTADO (< 0.16)
+  // Mostra 100% do mapa em cor única sem esconder nenhuma via!
   // ==========================================================================
   if (camera.scale < 0.16) {
     ctx.lineCap = 'butt';
     ctx.lineJoin = 'bevel';
 
-    const wHwLod = Math.max(22.0, minPx(4.2));
-    const wPriLod = Math.max(17.0, minPx(3.2));
-    const wLocLod = Math.max(12.0, minPx(2.0));
+    const wRoadLod = Math.max(15.0, minPx(3.0));
 
     if (camera.scale < 0.045) {
-      // Visão Geral do País / Continente — 3 chamadas diretas na GPU (Zero Lag!)
-      if (camera.scale > 0.025) {
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = wLocLod;
-        ctx.stroke(spatialGrid.globalLocPath);
-      }
-      ctx.strokeStyle = '#e5c967';
-      ctx.lineWidth = wPriLod;
-      ctx.stroke(spatialGrid.globalPriPath);
-
-      ctx.strokeStyle = '#eea63a';
-      ctx.lineWidth = wHwLod;
-      ctx.stroke(spatialGrid.globalHwPath);
+      ctx.strokeStyle = UNIFORM_ROAD_COLOR;
+      ctx.lineWidth = wRoadLod;
+      ctx.stroke(spatialGrid.globalAllPath);
     } else {
-      // Visão Regional — Culling por Super-Chunks de 12km pré-compilados em Path2D
       const cs = spatialGrid.LOD_CHUNK_SIZE;
       const cx0 = Math.floor(minWx / cs);
       const cx1 = Math.floor(maxWx / cs);
       const cy0 = Math.floor(minWy / cs);
       const cy1 = Math.floor(maxWy / cs);
-      const visibleChunks = [];
+
+      ctx.strokeStyle = UNIFORM_ROAD_COLOR;
+      ctx.lineWidth = wRoadLod;
       for (let cx = cx0; cx <= cx1; cx++) {
         for (let cy = cy0; cy <= cy1; cy++) {
           const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
-          if (ch) visibleChunks.push(ch);
+          if (ch && ch.hasRoads) ctx.stroke(ch.path);
         }
-      }
-
-      ctx.strokeStyle = '#7c8ea6';
-      ctx.lineWidth = wLocLod;
-      for (let i = 0; i < visibleChunks.length; i++) {
-        if (visibleChunks[i].hasLoc) ctx.stroke(visibleChunks[i].locPath);
-      }
-
-      ctx.strokeStyle = '#e5c967';
-      ctx.lineWidth = wPriLod;
-      for (let i = 0; i < visibleChunks.length; i++) {
-        if (visibleChunks[i].hasPri) ctx.stroke(visibleChunks[i].priPath);
-      }
-
-      ctx.strokeStyle = '#eea63a';
-      ctx.lineWidth = wHwLod;
-      for (let i = 0; i < visibleChunks.length; i++) {
-        if (visibleChunks[i].hasHw) ctx.stroke(visibleChunks[i].hwPath);
       }
     }
   } else {
     // ========================================================================
-    // MODO DETALHADO (ZOOM PRÓXIMO >= 0.16) — VIAS MAIS GROSSAS + DUAS VIAS
+    // MODO DETALHADO (ZOOM PRÓXIMO >= 0.16) — COR ÚNICA E LARGURA CONTÍNUA
     // ========================================================================
     const gx0 = Math.floor(minWx / GRID_CELL);
     const gx1 = Math.floor(maxWx / GRID_CELL);
@@ -578,102 +507,79 @@ function renderFrame() {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // 2. Polígonos de Pátios / Empresas / Postos (mapAreas)
+    // 2. Polígonos de Pátios de Postos / Empresas (Mesma Cor Única das Vias + Recorte das Ilhas!)
     if (visiblePolys.size > 0) {
-      ctx.fillStyle = '#1b2330';
-      ctx.strokeStyle = '#263142';
-      ctx.lineWidth = Math.max(1.5, 1.5 / effectiveScale);
+      // 2A. Base pavimentada do posto/empresa (color 0 e 1) na MESMA COR ÚNICA da via!
+      ctx.fillStyle = UNIFORM_ROAD_COLOR;
+      ctx.strokeStyle = UNIFORM_CASING_COLOR;
+      ctx.lineWidth = Math.max(2.5, minPx(1.8));
       ctx.beginPath();
       for (const idx of visiblePolys) {
-        const pts = mapData.polygons[idx][0];
-        ctx.moveTo(pts[0], pts[1]);
-        for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-        ctx.closePath();
+        const poly = mapData.polygons[idx];
+        if (poly[1] === 0 || poly[1] === 1) {
+          const pts = poly[0];
+          ctx.moveTo(pts[0], pts[1]);
+          for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+          ctx.closePath();
+        }
+      }
+      ctx.stroke();
+      ctx.fill();
+
+      // 2B. Ilhas / Canteiros que recortam as pistas internas do posto (color 3 = fundo do mapa)
+      ctx.fillStyle = '#10151d';
+      ctx.strokeStyle = UNIFORM_CASING_COLOR;
+      ctx.lineWidth = Math.max(1.8, minPx(1.2));
+      ctx.beginPath();
+      for (const idx of visiblePolys) {
+        const poly = mapData.polygons[idx];
+        if (poly[1] === 3) {
+          const pts = poly[0];
+          ctx.moveTo(pts[0], pts[1]);
+          for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+          ctx.closePath();
+        }
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      // 2C. Prédios / Coberturas de bombas dentro do posto (color 2)
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = '#070a0f';
+      ctx.lineWidth = Math.max(1.4, minPx(1.0));
+      ctx.beginPath();
+      for (const idx of visiblePolys) {
+        const poly = mapData.polygons[idx];
+        if (poly[1] === 2) {
+          const pts = poly[0];
+          ctx.moveTo(pts[0], pts[1]);
+          for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+          ctx.closePath();
+        }
       }
       ctx.fill();
       ctx.stroke();
     }
 
-    // Larguras mais encorpadas para diferenciar perfeitamente pistas de mão dupla (duas vias) e mão única
-    const wHw2 = Math.max(25.5, minPx(11.2));
-    const wHw1 = Math.max(18.5, minPx(8.2));
-    const wPri2 = Math.max(22.0, minPx(9.6));
-    const wPri1 = Math.max(16.0, minPx(7.2));
-    const wLoc2 = Math.max(18.0, minPx(7.8));
-    const wLoc1 = Math.max(14.0, minPx(6.2));
-    const wCasingExtra = Math.max(5.2, minPx(2.8));
+    // Largura única e contínua para todas as estradas e conexões de prefabs (sem bolhas/degraus!)
+    const wRoad = Math.max(16.0, minPx(7.2));
+    const wCasing = wRoad + Math.max(4.8, minPx(2.6));
 
-    const hw2 = [], hw1 = [];
-    const pri2 = [], pri1 = [];
-    const loc2 = [], loc1 = [];
-    const dirt = [];
-    const twoLaneDividers = [];
+    // 3A. Borda Externa Escura (Casing único)
+    ctx.strokeStyle = UNIFORM_CASING_COLOR;
+    ctx.lineWidth = wCasing;
+    ctx.beginPath();
+    for (const idx of visibleRoads) drawPolylinePath(mapData.roads[idx][0]);
+    for (const idx of visiblePrefabs) drawPolylinePath(mapData.prefabCurves[idx][0]);
+    ctx.stroke();
 
-    for (const idx of visibleRoads) {
-      const r = mapData.roads[idx];
-      const rType = r[1];
-      const lanesL = r[2] ?? 1;
-      const lanesR = r[3] ?? 1;
-      const isTwoWay = lanesL > 0 && lanesR > 0;
-      const hasMultiLanes = isTwoWay || (lanesL + lanesR >= 2);
-
-      if (rType === 0 || rType === 1) {
-        if (isTwoWay) hw2.push(r[0]);
-        else hw1.push(r[0]);
-        if (hasMultiLanes) twoLaneDividers.push(r[0]);
-      } else if (rType === 2) {
-        if (isTwoWay) pri2.push(r[0]);
-        else pri1.push(r[0]);
-        if (hasMultiLanes) twoLaneDividers.push(r[0]);
-      } else if (rType === 4) {
-        dirt.push(r[0]);
-      } else {
-        if (isTwoWay) loc2.push(r[0]);
-        else loc1.push(r[0]);
-        if (hasMultiLanes) twoLaneDividers.push(r[0]);
-      }
-    }
-
-    // Prefabs herdam a classe e a espessura da via conectada (sem trechos cinzas finos no meio da rodovia!)
-    for (const idx of visiblePrefabs) {
-      const pts = mapData.prefabCurves[idx][0];
-      const pCls = spatialGrid.prefabClasses[idx] || 3;
-      if (pCls === 1) hw1.push(pts);
-      else if (pCls === 2) pri1.push(pts);
-      else loc1.push(pts);
-    }
-
-    const strokeGroup = (arr, width, color) => {
-      if (arr.length === 0) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.beginPath();
-      for (let i = 0; i < arr.length; i++) drawPolylinePath(arr[i]);
-      ctx.stroke();
-    };
-
-    // 3A. Borda Externa Escura (Road Casing)
-    strokeGroup(loc1, wLoc1 + wCasingExtra, '#070a0f');
-    strokeGroup(loc2, wLoc2 + wCasingExtra, '#070a0f');
-    strokeGroup(dirt, wLoc1 + wCasingExtra, '#070a0f');
-    strokeGroup(pri1, wPri1 + wCasingExtra, '#070a0f');
-    strokeGroup(pri2, wPri2 + wCasingExtra, '#070a0f');
-    strokeGroup(hw1, wHw1 + wCasingExtra, '#070a0f');
-    strokeGroup(hw2, wHw2 + wCasingExtra, '#070a0f');
-
-    // 3B. Preenchimento das Vias
-    strokeGroup(dirt, wLoc1, '#9c7b56');
-    strokeGroup(loc1, wLoc1, '#8b9bb1');
-    strokeGroup(loc2, wLoc2, '#8b9bb1');
-    strokeGroup(pri1, wPri1, '#e5c967');
-    strokeGroup(pri2, wPri2, '#e5c967');
-    strokeGroup(hw1, wHw1, '#eea63a');
-    strokeGroup(hw2, wHw2, '#eea63a');
-
-    // 3C. Linha Divisória Central separando nitidamente as Duas Vias / Faixas
-    if (twoLaneDividers.length > 0 && camera.scale >= 0.18) {
-      strokeGroup(twoLaneDividers, Math.max(2.2, minPx(1.5)), 'rgba(12, 17, 25, 0.72)');
-    }
+    // 3B. Preenchimento em Cor Única para 100% das Vias e Trevos
+    ctx.strokeStyle = UNIFORM_ROAD_COLOR;
+    ctx.lineWidth = wRoad;
+    ctx.beginPath();
+    for (const idx of visibleRoads) drawPolylinePath(mapData.roads[idx][0]);
+    for (const idx of visiblePrefabs) drawPolylinePath(mapData.prefabCurves[idx][0]);
+    ctx.stroke();
   }
 
   // 4. ROTA GPS ATIVA (100% Cravada na Geometria das Estradas e Trevos — 0.00m Erro!)

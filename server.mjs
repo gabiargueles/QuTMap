@@ -14,7 +14,7 @@ const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const DOCUMENTS_DIR = path.join(os.homedir(), 'Documents');
 const STEAM_DIR = 'C:\\Program Files (x86)\\Steam';
 
-// Portas 3050, 3051 e 3060 são estritamente proibidas (Firebird / Trabalho Presence)
+// Portas reservadas do sistema
 const FORBIDDEN_PORTS = new Set([3050, 3051, 3060]);
 const DEFAULT_PORT = 8765;
 

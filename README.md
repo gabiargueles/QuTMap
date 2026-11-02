@@ -12,7 +12,6 @@ Navegador GPS em tempo real para **Euro Truck Simulator 2** (com suporte nativo 
   - Traça rota automaticamente para a **empresa de coleta** (`INDO COLETAR`) enquanto a carga não foi carregada, e muda sozinho para a **empresa de destino** (`EM ENTREGA`) ao engatar — funcionando mesmo após recarregar o save no meio de uma entrega (`onJob: false`).
   - Lê automaticamente os pontos marcados à mão no mapa do jogo descriptografando o save mais recente (`ScsC` AES-256-CBC + `BSII` / `SiiNunit`).
   - Recálculo automático em `< 15ms` ao errar uma saída (`> 26m` de desvio), priorizando o sentido de marcha para evitar retornos na contramão.
-- **Porta Segura (`8765`):** Nunca utiliza as portas `3050`, `3051` ou `3060` (reservadas para o Firebird).
 
 ## 📦 Instalação (Releases)
 

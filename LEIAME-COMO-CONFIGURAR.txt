@@ -12,9 +12,9 @@
      fadiga e dados da entrega.
    - Ponte de Telemetria (bin\TruckNavTelemetry.exe): Lê os dados da memória
      compartilhada do plugin e disponibiliza localmente na porta 30001.
-   - Servidor e Roteador A* (server.mjs + QuTMap.exe): Roda na porta 8765
-     (nunca usa 3050, 3051 ou 3060), lê os saves do jogo para pegar rotas
-     marcadas à mão e serve o mapa ao vivo para a 2ª tela e para o Tablet.
+   - Servidor e Roteador A* (server.mjs + QuTMap.exe): Roda na porta 8765,
+     lê os saves do jogo para pegar rotas marcadas à mão e serve o mapa
+     ao vivo para a 2ª tela e para o Tablet.
 
 2. COMO USAR A VERSÃO PORTÁTIL (QuTMap-Portatil):
    - Basta extrair a pasta "QuTMap-Portatil" em qualquer lugar e abrir

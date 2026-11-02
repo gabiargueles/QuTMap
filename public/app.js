@@ -303,6 +303,184 @@ function buildClientSpatialGrid(data) {
     LOD_CHUNK_SIZE,
     globalAllPath,
   };
+
+  resetTileCache();
+  scheduleTilePrewarm(data.meta?.bounds);
+}
+
+// ============================================================================
+// 1B. CACHE DE TILES RASTERIZADOS PARA ZOOM AFASTADO (estilo Google Maps)
+// Em vez de redesenhar ~150 mil segmentos de estrada a cada quadro, cada pedaço
+// do mapa é desenhado UMA vez numa imagem 512x512 e depois só é "colado" na tela.
+// ============================================================================
+const TILE_PX = 512;
+const TILE_BASE_SCALE = 0.32; // px por metro do nível 0
+const TILE_MAX_LEVEL = 7;
+const TILE_PROTECTED_LEVEL = 6; // níveis grossos pré-carregados nunca são descartados
+const TILE_CACHE_MAX = 140;
+const TILE_RENDER_BUDGET_MS = 8;
+const TILE_ROAD_COLOR = '#e2b857';
+
+const tileCache = new Map();
+let tileFrameCounter = 0;
+let tileGeneration = 0;
+
+function resetTileCache() {
+  tileCache.clear();
+  tileGeneration++;
+}
+
+function tileKey(L, tx, ty) {
+  return `${L}:${tx}:${ty}`;
+}
+
+function createTileCanvas() {
+  if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(TILE_PX, TILE_PX);
+  const c = document.createElement('canvas');
+  c.width = TILE_PX;
+  c.height = TILE_PX;
+  return c;
+}
+
+function renderTile(L, tx, ty) {
+  const levelScale = TILE_BASE_SCALE / (1 << L);
+  const tileWorld = TILE_PX / levelScale;
+  const x0 = tx * tileWorld;
+  const y0 = ty * tileWorld;
+
+  const cnv = createTileCanvas();
+  const tctx = cnv.getContext('2d');
+  tctx.setTransform(levelScale, 0, 0, levelScale, -x0 * levelScale, -y0 * levelScale);
+  tctx.lineCap = 'round';
+  tctx.lineJoin = 'round';
+  tctx.strokeStyle = TILE_ROAD_COLOR;
+  tctx.lineWidth = Math.max(15, 4 / levelScale);
+
+  // Chunks são indexados pelo centro da estrada, então ampliamos 1 chunk de margem
+  const cs = spatialGrid.LOD_CHUNK_SIZE;
+  const cx0 = Math.floor(x0 / cs) - 1;
+  const cx1 = Math.floor((x0 + tileWorld) / cs) + 1;
+  const cy0 = Math.floor(y0 / cs) - 1;
+  const cy1 = Math.floor((y0 + tileWorld) / cs) + 1;
+  for (let cx = cx0; cx <= cx1; cx++) {
+    for (let cy = cy0; cy <= cy1; cy++) {
+      const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
+      if (ch && ch.hasRoads) tctx.stroke(ch.path);
+    }
+  }
+  return cnv;
+}
+
+function drawParentTileFallback(L, tx, ty, x0, y0, drawSize) {
+  for (let k = 1; L + k <= TILE_MAX_LEVEL; k++) {
+    const f = 1 << k;
+    const ptx = Math.floor(tx / f);
+    const pty = Math.floor(ty / f);
+    const parent = tileCache.get(tileKey(L + k, ptx, pty));
+    if (parent) {
+      parent.used = tileFrameCounter;
+      const sub = TILE_PX / f;
+      ctx.drawImage(parent.cnv, (tx - ptx * f) * sub, (ty - pty * f) * sub, sub, sub, x0, y0, drawSize, drawSize);
+      return;
+    }
+  }
+}
+
+function evictTiles() {
+  if (tileCache.size <= TILE_CACHE_MAX) return;
+  const candidates = [];
+  for (const [key, entry] of tileCache) {
+    if (entry.L >= TILE_PROTECTED_LEVEL) continue;
+    if (entry.used === tileFrameCounter) continue;
+    candidates.push([key, entry.used]);
+  }
+  candidates.sort((a, b) => a[1] - b[1]);
+  let toRemove = tileCache.size - TILE_CACHE_MAX;
+  for (let i = 0; i < candidates.length && toRemove > 0; i++, toRemove--) {
+    tileCache.delete(candidates[i][0]);
+  }
+}
+
+function drawLodTiles(effectiveScale, w, h, anchorYRatio) {
+  tileFrameCounter++;
+
+  let L = Math.floor(Math.log2(TILE_BASE_SCALE / effectiveScale));
+  L = Math.max(0, Math.min(TILE_MAX_LEVEL, L));
+  const levelScale = TILE_BASE_SCALE / (1 << L);
+  const tileWorld = TILE_PX / levelScale;
+
+  // Área exata visível no mundo a partir dos 4 cantos da tela (considera rotação)
+  const cos = Math.cos(-camera.rotationRad);
+  const sin = Math.sin(-camera.rotationRad);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const corners = [[0, 0], [w, 0], [0, h], [w, h]];
+  for (let i = 0; i < 4; i++) {
+    const rx = corners[i][0] - w * 0.5;
+    const ry = corners[i][1] - h * anchorYRatio;
+    const wx = camera.x + (rx * cos - ry * sin) / effectiveScale;
+    const wy = camera.y + (rx * sin + ry * cos) / effectiveScale;
+    if (wx < minX) minX = wx;
+    if (wx > maxX) maxX = wx;
+    if (wy < minY) minY = wy;
+    if (wy > maxY) maxY = wy;
+  }
+
+  const tx0 = Math.floor(minX / tileWorld);
+  const tx1 = Math.floor(maxX / tileWorld);
+  const ty0 = Math.floor(minY / tileWorld);
+  const ty1 = Math.floor(maxY / tileWorld);
+
+  // 1 pixel de sobreposição para não aparecer emenda entre os tiles
+  const drawSize = tileWorld + 1 / levelScale;
+  const t0 = performance.now();
+  let renderedThisFrame = 0;
+  ctx.imageSmoothingEnabled = true;
+
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      const key = tileKey(L, tx, ty);
+      let entry = tileCache.get(key);
+      if (!entry && (renderedThisFrame === 0 || performance.now() - t0 < TILE_RENDER_BUDGET_MS)) {
+        entry = { cnv: renderTile(L, tx, ty), used: 0, L };
+        tileCache.set(key, entry);
+        renderedThisFrame++;
+      }
+      const x0 = tx * tileWorld;
+      const y0 = ty * tileWorld;
+      if (entry) {
+        entry.used = tileFrameCounter;
+        ctx.drawImage(entry.cnv, x0, y0, drawSize, drawSize);
+      } else {
+        drawParentTileFallback(L, tx, ty, x0, y0, drawSize);
+      }
+    }
+  }
+
+  evictTiles();
+}
+
+// Pré-carrega em segundo plano os níveis mais afastados do mapa inteiro,
+// para o primeiro "afastar zoom" já aparecer instantâneo.
+function scheduleTilePrewarm(bounds) {
+  if (!bounds || bounds.length < 4) return;
+  const gen = tileGeneration;
+  const queue = [];
+  for (let L = TILE_MAX_LEVEL; L >= TILE_PROTECTED_LEVEL; L--) {
+    const tileWorld = TILE_PX / (TILE_BASE_SCALE / (1 << L));
+    for (let ty = Math.floor(bounds[1] / tileWorld); ty <= Math.floor(bounds[3] / tileWorld); ty++) {
+      for (let tx = Math.floor(bounds[0] / tileWorld); tx <= Math.floor(bounds[2] / tileWorld); tx++) {
+        queue.push([L, tx, ty]);
+      }
+    }
+  }
+  const step = () => {
+    if (gen !== tileGeneration || queue.length === 0 || !spatialGrid) return;
+    const [L, tx, ty] = queue.shift();
+    const key = tileKey(L, tx, ty);
+    if (!tileCache.has(key)) tileCache.set(key, { cnv: renderTile(L, tx, ty), used: 0, L });
+    setTimeout(step, 16);
+  };
+  setTimeout(step, 300);
 }
 
 // ============================================================================
@@ -454,31 +632,7 @@ function renderFrame() {
   // Mostra 100% do mapa em cor única sem esconder nenhuma via!
   // ==========================================================================
   if (camera.scale < 0.16) {
-    ctx.lineCap = 'butt';
-    ctx.lineJoin = 'bevel';
-
-    const wRoadLod = Math.max(15.0, minPx(3.0));
-
-    if (camera.scale < 0.045) {
-      ctx.strokeStyle = UNIFORM_ROAD_COLOR;
-      ctx.lineWidth = wRoadLod;
-      ctx.stroke(spatialGrid.globalAllPath);
-    } else {
-      const cs = spatialGrid.LOD_CHUNK_SIZE;
-      const cx0 = Math.floor(minWx / cs);
-      const cx1 = Math.floor(maxWx / cs);
-      const cy0 = Math.floor(minWy / cs);
-      const cy1 = Math.floor(maxWy / cs);
-
-      ctx.strokeStyle = UNIFORM_ROAD_COLOR;
-      ctx.lineWidth = wRoadLod;
-      for (let cx = cx0; cx <= cx1; cx++) {
-        for (let cy = cy0; cy <= cy1; cy++) {
-          const ch = spatialGrid.lodChunks.get(`${cx},${cy}`);
-          if (ch && ch.hasRoads) ctx.stroke(ch.path);
-        }
-      }
-    }
+    drawLodTiles(effectiveScale, w, h, anchorYRatio);
   } else {
     // ========================================================================
     // MODO DETALHADO (ZOOM PRÓXIMO >= 0.16) — COR ÚNICA E LARGURA CONTÍNUA

@@ -580,6 +580,46 @@ function renderFrame() {
     for (const idx of visibleRoads) drawPolylinePath(mapData.roads[idx][0]);
     for (const idx of visiblePrefabs) drawPolylinePath(mapData.prefabCurves[idx][0]);
     ctx.stroke();
+
+    // 3C. Traçado central para identificar o tipo de via (mesma cor única de fundo)
+    //  - Rodovia duplicada/autoestrada (tipo 0/1): linha contínua no meio
+    //  - Via de mão dupla simples: linha tracejada no meio
+    //  - Via de mão única: sem traçado
+    if (camera.scale >= 0.18) {
+      const dividedRoads = [];
+      const twoWayRoads = [];
+      for (const idx of visibleRoads) {
+        const r = mapData.roads[idx];
+        const rType = r[1];
+        const lanesL = r[2] ?? 1;
+        const lanesR = r[3] ?? 1;
+        if (rType === 0 || rType === 1) dividedRoads.push(r[0]);
+        else if (lanesL > 0 && lanesR > 0) twoWayRoads.push(r[0]);
+      }
+
+      ctx.strokeStyle = 'rgba(12, 17, 25, 0.75)';
+      ctx.lineCap = 'butt';
+
+      if (dividedRoads.length > 0) {
+        ctx.lineWidth = Math.max(2.4, minPx(1.6));
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        for (let i = 0; i < dividedRoads.length; i++) drawPolylinePath(dividedRoads[i]);
+        ctx.stroke();
+      }
+
+      if (twoWayRoads.length > 0) {
+        const dash = Math.max(6, minPx(7));
+        ctx.lineWidth = Math.max(1.8, minPx(1.2));
+        ctx.setLineDash([dash, dash * 0.8]);
+        ctx.beginPath();
+        for (let i = 0; i < twoWayRoads.length; i++) drawPolylinePath(twoWayRoads[i]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      ctx.lineCap = 'round';
+    }
   }
 
   // 4. ROTA GPS ATIVA (100% Cravada na Geometria das Estradas e Trevos — 0.00m Erro!)

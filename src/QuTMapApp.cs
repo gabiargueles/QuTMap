@@ -41,7 +41,8 @@ namespace QuTMapApp
             BackColor = Color.FromArgb(16, 21, 29);
             ForeColor = Color.FromArgb(243, 246, 250);
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
-            Icon = SystemIcons.Application;
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application; }
+            catch { Icon = SystemIcons.Application; }
 
             BuildUi();
             BuildTray();
@@ -236,7 +237,7 @@ namespace QuTMapApp
             trayIcon = new NotifyIcon
             {
                 Text = "QuTMap (Porta " + port + ")",
-                Icon = SystemIcons.Application,
+                Icon = this.Icon ?? SystemIcons.Application,
                 ContextMenuStrip = trayMenu,
                 Visible = true
             };

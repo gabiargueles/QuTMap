@@ -33,7 +33,8 @@ namespace QuTMapInstaller
             BackColor = Color.FromArgb(16, 21, 29);
             ForeColor = Color.FromArgb(243, 246, 250);
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
-            Icon = SystemIcons.Shield;
+            try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Shield; }
+            catch { Icon = SystemIcons.Shield; }
 
             BuildUi();
         }

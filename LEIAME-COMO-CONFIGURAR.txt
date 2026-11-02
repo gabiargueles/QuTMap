@@ -1,5 +1,5 @@
 ========================================================================
-  TRUCKMAP GPS NATIVO — ETS2 (MAPA RBR + EUROPA) E ATS (PORTA 8765)
+  QUTMAP — ETS2 (MAPA RBR + EUROPA) E ATS (PORTA 8765)
 ========================================================================
 
 1. COMO O SISTEMA FUNCIONA:
@@ -12,23 +12,21 @@
      fadiga e dados da entrega.
    - Ponte de Telemetria (bin\TruckNavTelemetry.exe): Lê os dados da memória
      compartilhada do plugin e disponibiliza localmente na porta 30001.
-   - Servidor e Roteador A* (server.mjs + TruckMap.exe): Roda na porta 8765
+   - Servidor e Roteador A* (server.mjs + QuTMap.exe): Roda na porta 8765
      (nunca usa 3050, 3051 ou 3060), lê os saves do jogo para pegar rotas
      marcadas à mão e serve o mapa ao vivo para a 2ª tela e para o Tablet.
 
-2. COMO USAR A VERSÃO PORTÁTIL (TruckMap-Portatil):
-   - Basta extrair a pasta "TruckMap-Portatil" em qualquer lugar e abrir
-     o arquivo "TruckMap.exe" (ou "Iniciar-TruckMap.bat").
-   - Se estiver em outro PC onde os mapas ainda não foram extraídos, clique
-     no botão "Atualizar / Extrair Mapas (.scs)" dentro do TruckMap.exe
-     (ou pelo botão de engrenagem ⚙️ no canto superior direito do mapa).
+2. COMO USAR A VERSÃO PORTÁTIL (QuTMap-Portatil):
+   - Basta extrair a pasta "QuTMap-Portatil" em qualquer lugar e abrir
+     o arquivo "QuTMap.exe" (ou "Iniciar-QuTMap.bat"). Ele libera sozinho
+     a porta 8765 no Firewall do Windows.
 
-3. COMO USAR O INSTALADOR (TruckMap-Instalador.exe):
-   - Execute "TruckMap-Instalador.exe", confirme a pasta de instalação e as
+3. COMO USAR O INSTALADOR (QuTMap-Instalador.exe):
+   - Execute "QuTMap-Instalador.exe", confirme a pasta de instalação e as
      pastas do ETS2 e ATS, e clique em "Instalar Agora".
    - Ele cria os atalhos na Área de Trabalho e no Menu Iniciar, instala o
-     plugin scs-telemetry.dll nos jogos e configura o serviço para iniciar
-     sozinho junto com o Windows (ficando ao lado do relógio na bandeja).
+     plugin scs-telemetry.dll nos jogos, libera a porta 8765 no Firewall e
+     configura o serviço para iniciar sozinho junto com o Windows.
 
 4. ENDEREÇOS DE ACESSO:
    - Na 2ª Tela do PC:       http://127.0.0.1:8765

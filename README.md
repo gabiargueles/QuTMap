@@ -1,4 +1,4 @@
-# TruckMap GPS Nativo — ETS2 (Mapa RBR + Europa) & ATS
+# QuTMap — ETS2 (Mapa RBR + Europa) & ATS
 
 Navegador GPS em tempo real para **Euro Truck Simulator 2** (com suporte nativo ao **Mapa RBR — Brasil** e Europa) e **American Truck Simulator**, projetado para rodar na **2ª tela do PC** (`http://127.0.0.1:8765`) e no **Tablet / Celular** (`http://<IP-DO-PC>:8765`).
 
@@ -17,5 +17,5 @@ Navegador GPS em tempo real para **Euro Truck Simulator 2** (com suporte nativo 
 ## 📦 Instalação (Releases)
 
 Na aba **[Releases](../../releases)** estão disponíveis:
-1. **`TruckMap-Instalador.exe`**: Instalador gráfico do Windows que configura a pasta do aplicativo, cria atalhos na Área de Trabalho e no Menu Iniciar, registra a inicialização automática na bandeja do Windows, instala o plugin `scs-telemetry.dll` no ETS2 e ATS, **libera automaticamente a porta `8765` no Firewall do Windows** e extrai os mapas `.scs`.
-2. **`TruckMap-Portatil.zip`**: Versão portátil completa já com os mapas extraídos (`ets2_rbr`, `ats` e `ets2_europe`). Basta extrair e executar `TruckMap.exe` (que também verifica e libera automaticamente a porta `8765` no Firewall).
+1. **`QuTMap-Instalador.exe`**: Instalador gráfico do Windows que configura a pasta do aplicativo, cria atalhos na Área de Trabalho e no Menu Iniciar, registra a inicialização automática na bandeja do Windows, instala o plugin `scs-telemetry.dll` no ETS2 e ATS, **libera automaticamente a porta `8765` no Firewall do Windows** e extrai os mapas `.scs`.
+2. **`QuTMap-Portatil.zip`**: Versão portátil completa já com os mapas extraídos (`ets2_rbr`, `ats` e `ets2_europe`). Basta extrair e executar `QuTMap.exe` (que também verifica e libera automaticamente a porta `8765` no Firewall).

@@ -1916,7 +1916,7 @@ server.listen(PORT, '0.0.0.0', () => {
   const mainLanIp = ips.find((ip) => ip.startsWith('192.168.')) || ips[0] || '192.168.1.103';
   const plug = installPluginToGames();
   console.log('======================================================');
-  console.log(`TruckMap GPS Nativo rodando na porta ${PORT}!`);
+  console.log(`QuTMap rodando na porta ${PORT}!`);
   console.log(`  PC (2ª Tela):        http://127.0.0.1:${PORT}`);
   console.log(`  Galaxy Tab S10 FE:   http://${mainLanIp}:${PORT}`);
   console.log(`  Plugin Telemetria:   ETS2=${plug.ets2 ? 'OK' : 'Pendente'} | ATS=${plug.ats ? 'OK' : 'Pendente'}`);

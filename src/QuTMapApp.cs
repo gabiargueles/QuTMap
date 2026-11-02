@@ -9,7 +9,7 @@ using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace TruckMapApp
+namespace QuTMapApp
 {
     public class MainForm : Form
     {
@@ -26,14 +26,14 @@ namespace TruckMapApp
         private bool allowExit = false;
 
         private const string RUN_KEY = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        private const string APP_REG_NAME = "TruckMapGPS";
+        private const string APP_REG_NAME = "QuTMapGPS";
 
         public MainForm(bool startMinimized)
         {
             appDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             LoadPortFromConfig();
 
-            Text = "TruckMap GPS Nativo — Painel do Serviço";
+            Text = "QuTMap — Painel do Serviço";
             Size = new Size(560, 470);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -110,7 +110,7 @@ namespace TruckMapApp
         {
             Label lblTitle = new Label
             {
-                Text = "TruckMap GPS Nativo (ETS2 RBR · ATS · Europa)",
+                Text = "QuTMap (ETS2 RBR · ATS · Europa)",
                 Font = new Font("Segoe UI", 13f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(245, 166, 35),
                 Location = new Point(20, 16),
@@ -166,7 +166,7 @@ namespace TruckMapApp
 
             chkAutostart = new CheckBox
             {
-                Text = "Iniciar o serviço do TruckMap automaticamente com o Windows (na bandeja)",
+                Text = "Iniciar o serviço do QuTMap automaticamente com o Windows (na bandeja)",
                 Location = new Point(22, 152),
                 AutoSize = true,
                 Checked = IsAutostartEnabled()
@@ -231,11 +231,11 @@ namespace TruckMapApp
             trayMenu.Items.Add("Abrir Mapa na 2ª Tela", null, (s, e) => OpenMapWindow());
             trayMenu.Items.Add("Painel de Controle / Configurar", null, (s, e) => ShowFromTray());
             trayMenu.Items.Add(new ToolStripSeparator());
-            trayMenu.Items.Add("Encerrar TruckMap GPS", null, (s, e) => ExitService());
+            trayMenu.Items.Add("Encerrar QuTMap", null, (s, e) => ExitService());
 
             trayIcon = new NotifyIcon
             {
-                Text = "TruckMap GPS Nativo (Porta " + port + ")",
+                Text = "QuTMap (Porta " + port + ")",
                 Icon = SystemIcons.Application,
                 ContextMenuStrip = trayMenu,
                 Visible = true
@@ -350,7 +350,7 @@ namespace TruckMapApp
 
         private void EnsureFirewallPortOpen(bool force)
         {
-            string ruleName = "TruckMap GPS (Porta " + port + ")";
+            string ruleName = "QuTMap (Porta " + port + ")";
             try
             {
                 if (!force)
@@ -480,7 +480,7 @@ namespace TruckMapApp
         {
             Hide();
             ShowInTaskbar = false;
-            trayIcon.ShowBalloonTip(2000, "TruckMap GPS Ativo", "Rodando em segundo plano na porta " + port + ".", ToolTipIcon.Info);
+            trayIcon.ShowBalloonTip(2000, "QuTMap Ativo", "Rodando em segundo plano na porta " + port + ".", ToolTipIcon.Info);
         }
 
         private void ShowFromTray()

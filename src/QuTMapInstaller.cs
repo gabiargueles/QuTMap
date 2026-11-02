@@ -8,7 +8,7 @@ using System.Text;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace TruckMapInstaller
+namespace QuTMapInstaller
 {
     public class InstallerForm : Form
     {
@@ -25,7 +25,7 @@ namespace TruckMapInstaller
 
         public InstallerForm()
         {
-            Text = "Instalador — TruckMap GPS Nativo (ETS2 RBR & ATS)";
+            Text = "Instalador — QuTMap (ETS2 RBR & ATS)";
             Size = new Size(580, 470);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -42,7 +42,7 @@ namespace TruckMapInstaller
         {
             Label lblHeader = new Label
             {
-                Text = "Instalação do TruckMap GPS Nativo",
+                Text = "Instalação do QuTMap",
                 Font = new Font("Segoe UI", 14f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(245, 166, 35),
                 Location = new Point(22, 16),
@@ -58,8 +58,8 @@ namespace TruckMapInstaller
             Controls.AddRange(new Control[] { lblHeader, lblSub });
 
             string defaultDir = Directory.Exists(@"C:\Claude\Projetos")
-                ? @"C:\Claude\Projetos\TruckMap"
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Apps", "TruckMap");
+                ? @"C:\Claude\Projetos\QuTMap"
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Apps", "QuTMap");
 
             Label l1 = new Label { Text = "Pasta de Instalação:", Location = new Point(24, 80), AutoSize = true };
             txtInstallDir = new TextBox
@@ -119,7 +119,7 @@ namespace TruckMapInstaller
             };
             chkAutostart = new CheckBox
             {
-                Text = "Iniciar o serviço do TruckMap automaticamente com o Windows (em segundo plano)",
+                Text = "Iniciar o serviço do QuTMap automaticamente com o Windows (em segundo plano)",
                 Location = new Point(24, 278),
                 AutoSize = true,
                 Checked = true
@@ -133,7 +133,7 @@ namespace TruckMapInstaller
             };
             chkExtractMaps = new CheckBox
             {
-                Text = "Extrair / copiar mapas (.scs e Mapa RBR) e abrir o TruckMap ao concluir",
+                Text = "Extrair / copiar mapas (.scs e Mapa RBR) e abrir o QuTMap ao concluir",
                 Location = new Point(24, 334),
                 AutoSize = true,
                 Checked = true
@@ -206,17 +206,17 @@ namespace TruckMapInstaller
                 Application.DoEvents();
                 Directory.CreateDirectory(targetDir);
 
-                // Extrai pacote embutido TruckMapCore.zip
+                // Extrai pacote embutido QuTMapCore.zip
                 lblProgress.Text = "Extraindo arquivos do aplicativo e binários de telemetria...";
                 progressBar.Value = 35;
                 Application.DoEvents();
 
                 Assembly asm = Assembly.GetExecutingAssembly();
-                using (Stream s = asm.GetManifestResourceStream("TruckMapCore.zip"))
+                using (Stream s = asm.GetManifestResourceStream("QuTMapCore.zip"))
                 {
                     if (s != null)
                     {
-                        string tempZip = Path.Combine(Path.GetTempPath(), "TruckMapCore_" + Guid.NewGuid().ToString("N") + ".zip");
+                        string tempZip = Path.Combine(Path.GetTempPath(), "QuTMapCore_" + Guid.NewGuid().ToString("N") + ".zip");
                         using (FileStream fs = new FileStream(tempZip, FileMode.Create, FileAccess.Write))
                         {
                             s.CopyTo(fs);
@@ -273,7 +273,7 @@ namespace TruckMapInstaller
 
                     try
                     {
-                        string ruleName = "TruckMap GPS (Porta 8765)";
+                        string ruleName = "QuTMap (Porta 8765)";
                         Process chk = Process.Start(new ProcessStartInfo
                         {
                             FileName = "netsh",
@@ -304,14 +304,14 @@ namespace TruckMapInstaller
                 }
 
                 // Cria atalhos na Área de Trabalho e Menu Iniciar
-                string exePath = Path.Combine(targetDir, "TruckMap.exe");
+                string exePath = Path.Combine(targetDir, "QuTMap.exe");
                 if (chkDesktopShortcut.Checked && File.Exists(exePath))
                 {
                     lblProgress.Text = "Criando atalhos na Área de Trabalho e Menu Iniciar...";
                     progressBar.Value = 70;
                     Application.DoEvents();
-                    CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "TruckMap GPS.lnk"), exePath, targetDir);
-                    CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "TruckMap GPS.lnk"), exePath, targetDir);
+                    CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "QuTMap.lnk"), exePath, targetDir);
+                    CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "QuTMap.lnk"), exePath, targetDir);
                 }
 
                 // Registra inicialização automática com o Windows
@@ -319,7 +319,7 @@ namespace TruckMapInstaller
                 {
                     using (RegistryKey k = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
                     {
-                        if (k != null) k.SetValue("TruckMapGPS", "\"" + exePath + "\" --tray");
+                        if (k != null) k.SetValue("QuTMapGPS", "\"" + exePath + "\" --tray");
                     }
                 }
 
@@ -358,7 +358,7 @@ namespace TruckMapInstaller
                 }
 
                 MessageBox.Show(
-                    "TruckMap GPS Nativo instalado com sucesso em:\n" + targetDir + "\n\n" +
+                    "QuTMap instalado com sucesso em:\n" + targetDir + "\n\n" +
                     "• 2ª Tela no PC: http://127.0.0.1:8765\n" +
                     "• Tablet na Rede: http://192.168.1.103:8765",
                     "Instalação Concluída",
@@ -384,7 +384,7 @@ namespace TruckMapInstaller
                     "Set sc = ws.CreateShortcut(\"" + lnkPath + "\")\r\n" +
                     "sc.TargetPath = \"" + targetExe + "\"\r\n" +
                     "sc.WorkingDirectory = \"" + workDir + "\"\r\n" +
-                    "sc.Description = \"TruckMap GPS Nativo (ETS2 RBR & ATS)\"\r\n" +
+                    "sc.Description = \"QuTMap (ETS2 RBR & ATS)\"\r\n" +
                     "sc.Save\r\n";
                 File.WriteAllText(vbs, script, Encoding.Default);
                 Process p = Process.Start(new ProcessStartInfo { FileName = "wscript", Arguments = "//B //NoLogo \"" + vbs + "\"", CreateNoWindow = true, UseShellExecute = false });

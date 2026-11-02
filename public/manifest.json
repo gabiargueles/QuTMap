@@ -1,6 +1,6 @@
 {
-  "name": "TruckMap GPS Nativo — ETS2 RBR & ATS",
-  "short_name": "TruckMap GPS",
+  "name": "QuTMap — ETS2 RBR & ATS",
+  "short_name": "QuTMap",
   "description": "Navegador GPS em tempo real extraído diretamente dos arquivos .scs do ETS2, Mapa RBR e ATS com 0.00m de desalinhamento.",
   "start_url": "/",
   "display": "standalone",

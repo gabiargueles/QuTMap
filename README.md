@@ -18,3 +18,4 @@ Navegador GPS em tempo real para **Euro Truck Simulator 2** (com suporte nativo 
 Na aba **[Releases](../../releases)** estão disponíveis:
 1. **`QuTMap-Instalador.exe`**: Instalador gráfico do Windows que configura a pasta do aplicativo, cria atalhos na Área de Trabalho e no Menu Iniciar, registra a inicialização automática na bandeja do Windows, instala o plugin `scs-telemetry.dll` no ETS2 e ATS, **libera automaticamente a porta `8765` no Firewall do Windows** e extrai os mapas `.scs`.
 2. **`QuTMap-Portatil.zip`**: Versão portátil completa já com os mapas extraídos (`ets2_rbr`, `ats` e `ets2_europe`). Basta extrair e executar `QuTMap.exe` (que também verifica e libera automaticamente a porta `8765` no Firewall).
+<img width="1917" height="1079" alt="image" src="https://github.com/user-attachments/assets/b026a94b-3cf7-434d-bf62-5910ee90a592" />

@@ -329,19 +329,22 @@ namespace QuTMapInstaller
                 Directory.CreateDirectory(dataDir);
                 if (chkExtractMaps.Checked && !File.Exists(Path.Combine(dataDir, "ets2_rbr.json")) && !File.Exists(Path.Combine(dataDir, "ats.json")))
                 {
-                    lblProgress.Text = "Extraindo mapas nativos (.scs / Mapa RBR)... aguarde ~6s";
-                    progressBar.Value = 85;
-                    Application.DoEvents();
-                    string nodeExe = File.Exists(@"C:\Program Files\nodejs\node.exe") ? @"C:\Program Files\nodejs\node.exe" : "node";
-                    Process p = Process.Start(new ProcessStartInfo
+                    string nodeExe = ResolveNodeExe(targetDir);
+                    if (!string.IsNullOrEmpty(nodeExe))
                     {
-                        FileName = nodeExe,
-                        Arguments = "\"" + Path.Combine(targetDir, "extractor.mjs") + "\"",
-                        WorkingDirectory = targetDir,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    });
-                    if (p != null) p.WaitForExit(25000);
+                        lblProgress.Text = "Extraindo mapas nativos (.scs / Mapa RBR)... aguarde ~6s";
+                        progressBar.Value = 85;
+                        Application.DoEvents();
+                        Process p = Process.Start(new ProcessStartInfo
+                        {
+                            FileName = nodeExe,
+                            Arguments = "\"" + Path.Combine(targetDir, "extractor.mjs") + "\"",
+                            WorkingDirectory = targetDir,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        });
+                        if (p != null) p.WaitForExit(25000);
+                    }
                 }
 
                 progressBar.Value = 100;
@@ -373,6 +376,34 @@ namespace QuTMapInstaller
                 MessageBox.Show("Erro durante a instalação: " + ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnInstall.Enabled = true;
             }
+        }
+
+        private string ResolveNodeExe(string targetDir)
+        {
+            string p0 = Path.Combine(targetDir, "bin", "node.exe");
+            if (File.Exists(p0)) return p0;
+            string p00 = Path.Combine(targetDir, "node.exe");
+            if (File.Exists(p00)) return p00;
+            string p1 = @"C:\Program Files\nodejs\node.exe";
+            if (File.Exists(p1)) return p1;
+            string p2 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe");
+            if (File.Exists(p2)) return p2;
+            string p3 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe");
+            if (File.Exists(p3)) return p3;
+
+            string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (string dir in pathEnv.Split(';'))
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                try
+                {
+                    string candidate = Path.Combine(dir.Trim(), "node.exe");
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch { }
+            }
+
+            return null;
         }
 
         private void CreateShortcut(string lnkPath, string targetExe, string workDir)

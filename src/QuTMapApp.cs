@@ -271,11 +271,30 @@ namespace QuTMapApp
 
         private string ResolveNodeExe()
         {
+            string p0 = Path.Combine(appDir, "bin", "node.exe");
+            if (File.Exists(p0)) return p0;
+            string p00 = Path.Combine(appDir, "node.exe");
+            if (File.Exists(p00)) return p00;
             string p1 = @"C:\Program Files\nodejs\node.exe";
             if (File.Exists(p1)) return p1;
             string p2 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe");
             if (File.Exists(p2)) return p2;
-            return "node";
+            string p3 = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe");
+            if (File.Exists(p3)) return p3;
+
+            string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (string dir in pathEnv.Split(';'))
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                try
+                {
+                    string candidate = Path.Combine(dir.Trim(), "node.exe");
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch { }
+            }
+
+            return null;
         }
 
         private void StartNodeServer()
@@ -283,16 +302,32 @@ namespace QuTMapApp
             if (IsPortListening(port))
             {
                 lblStatus.Text = "● Serviço Ativo na porta " + port + " (Pronto para jogar)";
+                lblStatus.ForeColor = Color.FromArgb(74, 222, 128);
                 AppendLog("Servidor já está ativo na porta " + port + ".");
+                return;
+            }
+
+            string serverScript = Path.Combine(appDir, "server.mjs");
+            if (!File.Exists(serverScript))
+            {
+                lblStatus.Text = "server.mjs não encontrado";
+                lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
+                AppendLog("Erro: arquivo server.mjs não encontrado em: " + appDir);
+                return;
+            }
+
+            string nodeExe = ResolveNodeExe();
+            if (string.IsNullOrEmpty(nodeExe))
+            {
+                EnsureNodeDownloadedAndStart();
                 return;
             }
 
             try
             {
-                string serverScript = Path.Combine(appDir, "server.mjs");
                 ProcessStartInfo psi = new ProcessStartInfo
                 {
-                    FileName = ResolveNodeExe(),
+                    FileName = nodeExe,
                     Arguments = "\"" + serverScript + "\"",
                     WorkingDirectory = appDir,
                     UseShellExecute = false,
@@ -309,6 +344,7 @@ namespace QuTMapApp
                 serverProcess.BeginOutputReadLine();
                 serverProcess.BeginErrorReadLine();
                 lblStatus.Text = "● Serviço Ativo na porta " + port + " (Pronto para jogar)";
+                lblStatus.ForeColor = Color.FromArgb(74, 222, 128);
             }
             catch (Exception ex)
             {
@@ -316,6 +352,53 @@ namespace QuTMapApp
                 lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
                 AppendLog("Erro ao iniciar node server.mjs: " + ex.Message);
             }
+        }
+
+        private void EnsureNodeDownloadedAndStart()
+        {
+            lblStatus.Text = "Baixando Node.js autônomo...";
+            lblStatus.ForeColor = Color.FromArgb(245, 166, 35);
+            AppendLog("Node.js não foi encontrado nesta máquina.");
+            AppendLog("Baixando executável oficial do Node.js direto para bin\\node.exe (aguarde alguns segundos)...");
+
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    string binDir = Path.Combine(appDir, "bin");
+                    Directory.CreateDirectory(binDir);
+                    string target = Path.Combine(binDir, "node.exe");
+                    string tempTarget = target + ".tmp";
+
+                    using (WebClient wc = new WebClient())
+                    {
+                        wc.Headers.Add("User-Agent", "QuTMap-Setup");
+                        wc.DownloadFile("https://nodejs.org/dist/v20.18.0/win-x64/node.exe", tempTarget);
+                    }
+
+                    if (File.Exists(tempTarget))
+                    {
+                        if (File.Exists(target)) File.Delete(target);
+                        File.Move(tempTarget, target);
+                    }
+
+                    Invoke(new Action(() =>
+                    {
+                        AppendLog("Node.js autônomo baixado e pronto em bin\\node.exe!");
+                        StartNodeServer();
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    Invoke(new Action(() =>
+                    {
+                        lblStatus.Text = "Node.js não instalado";
+                        lblStatus.ForeColor = Color.FromArgb(248, 113, 113);
+                        AppendLog("Não foi possível baixar o node.exe automaticamente: " + ex.Message);
+                        AppendLog("Instale o Node.js em: https://nodejs.org (ou copie o node.exe para bin\\node.exe)");
+                    }));
+                }
+            });
         }
 
         private void RunExtractor()

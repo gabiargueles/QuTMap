@@ -2,3 +2,4 @@ dist/
 data/*.json
 node_modules/
 *.log
+bin/node.exe

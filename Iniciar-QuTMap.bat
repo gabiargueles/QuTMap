@@ -18,6 +18,10 @@ if exist "%~dp0QuTMap.exe" (
   exit /b 0
 )
 
+set NODE_CMD=node
+if exist "%~dp0bin\node.exe" set NODE_CMD="%~dp0bin\node.exe"
+if exist "%~dp0node.exe" set NODE_CMD="%~dp0node.exe"
+
 start "" cmd /c "timeout /t 1 /nobreak >nul & start msedge --app=http://127.0.0.1:8765"
-node "%~dp0server.mjs"
+%NODE_CMD% "%~dp0server.mjs"
 pause

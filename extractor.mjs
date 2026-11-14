@@ -2038,7 +2038,16 @@ if (import.meta.url === `file:///${process.argv[1].replace(/\\/g, "/")}`) {
     });
   }
 
-  for (const cfg of configs) {
+  let targetConfigs = configs;
+  if (process.argv[2]) {
+    targetConfigs = configs.filter(c => c.id === process.argv[2]);
+    if (targetConfigs.length === 0) {
+      console.error(`Configuração '${process.argv[2]}' não encontrada. Disponíveis: ${configs.map(c => c.id).join(', ')}`);
+      process.exit(1);
+    }
+  }
+
+  for (const cfg of targetConfigs) {
     const data = buildMapDataset(cfg);
     const outPath = path.join(outDir, `${cfg.id}.json`);
     fs.writeFileSync(outPath, JSON.stringify(data));

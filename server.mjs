@@ -945,24 +945,28 @@ let smoothedHeadingOffsetRad = 0;
  * Detecta se o ETS2 aberto está com o Mapa RBR montado lendo o game.log.txt ou coordenadas
  */
 function detectEts2Map(truckX, truckY) {
+  // Islândia e norte europeu extremo (Y < -50000) nunca existem no Mapa RBR
+  if (truckY < -50000) return 'ets2_europe';
+
   try {
     const logPath = path.join(DOCUMENTS_DIR, 'Euro Truck Simulator 2', 'game.log.txt');
     if (fs.existsSync(logPath)) {
       const content = fs.readFileSync(logPath, 'utf8');
-      if (/Mapa RBR|RBR Mod/i.test(content)) return 'ets2_rbr';
+      if (/\[zipfs\]\s+MAPA_RBR/i.test(content) || /Mounting.*MAPA_RBR/i.test(content)) return 'ets2_rbr';
     }
   } catch { /* ignore */ }
 
-  // Verifica em qual mapa o caminhão está mais perto de uma rodovia (< 120m)
   const rbr = loadMapData('ets2_rbr');
   const eur = loadMapData('ets2_europe');
+  if (eur && !rbr) return 'ets2_europe';
+  if (rbr && !eur) return 'ets2_rbr';
   if (rbr && eur && (Math.abs(truckX) > 1 || Math.abs(truckY) > 1)) {
-    const sRbr = snapPointToGraph(rbr, truckX, truckY, null, 400);
-    const sEur = snapPointToGraph(eur, truckX, truckY, null, 400);
-    if (sRbr.dist < 80 && sEur.dist > 250) return 'ets2_rbr';
-    if (sEur.dist < 80 && sRbr.dist > 250) return 'ets2_europe';
+    const sRbr = snapPointToGraph(rbr, truckX, truckY, null, 1000);
+    const sEur = snapPointToGraph(eur, truckX, truckY, null, 1000);
+    if (sEur.dist < sRbr.dist) return 'ets2_europe';
+    if (sRbr.dist < sEur.dist) return 'ets2_rbr';
   }
-  return 'ets2_rbr';
+  return 'ets2_europe';
 }
 
 /**

@@ -50,12 +50,16 @@ const jobCardHeader = document.getElementById('jobCardHeader');
 const jobStatusDot = document.getElementById('jobStatusDot');
 const jobHeaderTitle = document.getElementById('jobHeaderTitle');
 const jobCargoText = document.getElementById('jobCargoText');
+const jobCargoLabel = document.getElementById('jobCargoLabel');
 const jobOriginText = document.getElementById('jobOriginText');
 const jobDestText = document.getElementById('jobDestText');
 const jobIncomeText = document.getElementById('jobIncomeText');
+const jobIncomeLabel = document.getElementById('jobIncomeLabel');
 const jobDamageText = document.getElementById('jobDamageText');
+const jobDamageLabel = document.getElementById('jobDamageLabel');
 
 const btnRecenter = document.getElementById('btnRecenter');
+const recenterBtnText = document.getElementById('recenterBtnText');
 const btnZoomIn = document.getElementById('btnZoomIn');
 const btnZoomOut = document.getElementById('btnZoomOut');
 
@@ -1241,31 +1245,56 @@ function updateHud() {
   // Relógio do Jogo
   setCachedText(gameClockValue, nav.gameTimeFormatted || 'Seg 12:00');
 
-  // Card de Entrega (Job) — Sempre visível e aberto embaixo do tempo da rota!
+  // Card de Entrega (Job / Ônibus) — Sempre visível e aberto embaixo do tempo da rota!
+  const isBus = !!(job?.isBusJob || /touring|bus|coach|paradiso|invictus|campione|marcopolo|comil|irizar/i.test(`${t.brand || ''} ${t.name || ''}`));
+
+  if (recenterBtnText) {
+    setCachedText(recenterBtnText, isBus ? 'Recentrar no Ônibus' : 'Recentrar no Caminhão');
+  }
+
   if (job.hasActiveJob) {
-    setCachedClass(jobStatusDot, job.mustPickUp ? 'job-status-dot pickup' : 'job-status-dot active');
-    setCachedText(jobHeaderTitle, job.mustPickUp
-      ? `Coletar: ${job.sourceCity}`
-      : `Entrega: ${job.destCity}`);
-    const massStr = job.cargoMassKg
-      ? useMph
-        ? ` (${Math.round(job.cargoMassKg * 2.20462).toLocaleString('pt-BR')} lb)`
-        : ` (${Math.round(job.cargoMassKg).toLocaleString('pt-BR')} kg)`
-      : '';
-    setCachedText(jobCargoText, `${job.cargoName || 'Carga'}${massStr}`);
-    setCachedText(jobOriginText, `${job.sourceCompany} · ${job.sourceCity}`);
-    setCachedText(jobDestText, `${job.destCompany} · ${job.destCity}`);
-    const currency = currentMapId === 'ets2_rbr' ? 'R$' : isAts ? 'US$' : '€';
-    setCachedText(jobIncomeText, `${currency} ${(job.income || 0).toLocaleString('pt-BR')}`);
-    setCachedText(jobDamageText, `${job.cargoDamagePercent || 0}% / ${t.damagePercent || 0}%`);
+    if (job.isBusJob) {
+      setCachedClass(jobStatusDot, 'job-status-dot active');
+      setCachedText(jobHeaderTitle, `🚌 Linha de Ônibus · ${job.busStageText || 'Passageiros'}`);
+      if (jobCargoLabel) setCachedText(jobCargoLabel, 'Passageiros:');
+      if (jobIncomeLabel) setCachedText(jobIncomeLabel, 'Linha / Etapa');
+      if (jobDamageLabel) setCachedText(jobDamageLabel, 'Dano do Ônibus');
+      setCachedText(jobCargoText, `${job.cargoName || 'Passageiros a bordo'}`);
+      setCachedText(jobOriginText, `${job.sourceCity} (Terminal)`);
+      setCachedText(jobDestText, `${job.destCity} (Terminal)`);
+      setCachedText(jobIncomeText, job.plannedDistanceKm ? `${job.plannedDistanceKm.toLocaleString('pt-BR')} km previstos` : 'Linha Ativa');
+      setCachedText(jobDamageText, `${t.damagePercent || 0}%`);
+    } else {
+      if (jobCargoLabel) setCachedText(jobCargoLabel, 'Carga / Peso:');
+      if (jobIncomeLabel) setCachedText(jobIncomeLabel, 'Valor do Frete');
+      if (jobDamageLabel) setCachedText(jobDamageLabel, 'Dano Carga / Cam.');
+      setCachedClass(jobStatusDot, job.mustPickUp ? 'job-status-dot pickup' : 'job-status-dot active');
+      setCachedText(jobHeaderTitle, job.mustPickUp
+        ? `Coletar: ${job.sourceCity}`
+        : `Entrega: ${job.destCity}`);
+      const massStr = job.cargoMassKg
+        ? useMph
+          ? ` (${Math.round(job.cargoMassKg * 2.20462).toLocaleString('pt-BR')} lb)`
+          : ` (${Math.round(job.cargoMassKg).toLocaleString('pt-BR')} kg)`
+        : '';
+      setCachedText(jobCargoText, `${job.cargoName || 'Carga'}${massStr}`);
+      setCachedText(jobOriginText, `${job.sourceCompany} · ${job.sourceCity}`);
+      setCachedText(jobDestText, `${job.destCompany} · ${job.destCity}`);
+      const currency = currentMapId === 'ets2_rbr' ? 'R$' : isAts ? 'US$' : '€';
+      setCachedText(jobIncomeText, `${currency} ${(job.income || 0).toLocaleString('pt-BR')}`);
+      setCachedText(jobDamageText, `${job.cargoDamagePercent || 0}% / ${t.damagePercent || 0}%`);
+    }
   } else {
+    if (jobCargoLabel) setCachedText(jobCargoLabel, isBus ? 'Passageiros:' : 'Carga / Peso:');
+    if (jobIncomeLabel) setCachedText(jobIncomeLabel, isBus ? 'Linha / Etapa' : 'Valor do Frete');
+    if (jobDamageLabel) setCachedText(jobDamageLabel, isBus ? 'Dano do Ônibus' : 'Dano Carga / Cam.');
     setCachedClass(jobStatusDot, 'job-status-dot');
-    setCachedText(jobHeaderTitle, 'Sem Entrega Ativa (Livre)');
+    setCachedText(jobHeaderTitle, isBus ? 'Sem Linha Ativa (Livre)' : 'Sem Entrega Ativa (Livre)');
     setCachedText(jobCargoText, '—');
     setCachedText(jobOriginText, '—');
     setCachedText(jobDestText, '—');
     setCachedText(jobIncomeText, '—');
-    setCachedText(jobDamageText, `0% / ${t.damagePercent || 0}%`);
+    setCachedText(jobDamageText, isBus ? `${t.damagePercent || 0}%` : `0% / ${t.damagePercent || 0}%`);
   }
 
   // Card de Manobra e Tempo da Rota (Sempre visível acima do Card de Entrega)

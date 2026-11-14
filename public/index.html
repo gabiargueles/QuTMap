@@ -75,7 +75,7 @@
       </div>
       <div id="jobCardBody" class="job-card-body">
         <div class="job-row">
-          <span class="job-lbl">Carga / Peso:</span>
+          <span id="jobCargoLabel" class="job-lbl">Carga / Peso:</span>
           <span id="jobCargoText" class="job-val">—</span>
         </div>
         <div class="job-row">
@@ -88,11 +88,11 @@
         </div>
         <div class="job-row-grid">
           <div class="job-mini-box">
-            <span class="job-lbl">Valor do Frete</span>
+            <span id="jobIncomeLabel" class="job-lbl">Valor do Frete</span>
             <span id="jobIncomeText" class="job-val highlight-green">—</span>
           </div>
           <div class="job-mini-box">
-            <span class="job-lbl">Dano Carga / Cam.</span>
+            <span id="jobDamageLabel" class="job-lbl">Dano Carga / Cam.</span>
             <span id="jobDamageText" class="job-val">0% / 0%</span>
           </div>
         </div>
@@ -145,7 +145,7 @@
     </div>
   </div>
 
-  <!-- Botão Flutuante "Recentrar no Caminhão" quando o usuário arrasta o mapa -->
+  <!-- Botão Flutuante "Recentrar no Caminhão / Ônibus" quando o usuário arrasta o mapa -->
   <button id="btnRecenter" class="btn-recenter hidden">
     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2.4" fill="none">
       <circle cx="12" cy="12" r="3"></circle>
@@ -155,7 +155,7 @@
       <line x1="2" y1="12" x2="4" y2="12"></line>
       <line x1="20" y1="12" x2="22" y2="12"></line>
     </svg>
-    <span>Recentrar no Caminhão</span>
+    <span id="recenterBtnText">Recentrar no Caminhão</span>
   </button>
 
   <!-- Controles Flutuantes de Zoom (Direita Inferior) -->

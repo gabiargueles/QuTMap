@@ -676,19 +676,24 @@ function computeRoute(map, startX, startY, startHeadingRad, targets, mode = 'aut
   const finalLabel = label || resolvedStops[resolvedStops.length - 1]?.label || 'Destino';
   const maneuvers = extractManeuvers(points, cumDist, finalLabel);
 
+  const mapScale = (map?.game === 'ats') ? 20 : (map?.id === 'ets2_europe' ? 19 : 1);
+  const totalWorldMetersScaled = (totalWorldMeters || 0) * mapScale;
+  const totalGraphDistScaled = (totalGraphDist || 0) * mapScale;
+  const totalGraphDurScaled = (totalGraphDur || 0) * mapScale;
+
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     mode, // 'job-pickup' | 'job-delivery' | 'save-waypoints' | 'manual'
     label: finalLabel,
     points,
     cumDist,
-    totalDistanceMeters: Math.round(totalGraphDist || totalWorldMeters),
-    totalDurationSeconds: Math.round(totalGraphDur),
+    totalDistanceMeters: Math.round(totalGraphDistScaled || totalWorldMetersScaled),
+    totalDurationSeconds: Math.round(totalGraphDurScaled),
     maneuvers,
     stops: resolvedStops,
     progressIdx: 0,
-    remainingMeters: Math.round(totalGraphDist || totalWorldMeters),
-    remainingSeconds: Math.round(totalGraphDur),
+    remainingMeters: Math.round(totalGraphDistScaled || totalWorldMetersScaled),
+    remainingSeconds: Math.round(totalGraphDurScaled),
     nextManeuver: maneuvers[0] || null,
     calcTimeMs: Math.round(performance.now() - t0),
   };
@@ -741,6 +746,8 @@ function parseBsiiWaypoints(buf) {
     if (type === 0x01) return str();
     if (type === 0x03) return decodeBsiiToken(u64());
     if (type === 0x11) return [i32(), i32(), i32()];
+    if (type === 0x25) return i32();
+    if (type === 0x27) return u32();
     if (type === 0x39 || type === 0x3b || type === 0x3d) return readId();
     if (BSII_FIXED_SIZES[type] !== undefined) {
       pos += BSII_FIXED_SIZES[type];
@@ -759,6 +766,8 @@ function parseBsiiWaypoints(buf) {
   const structs = new Map();
   const storage = new Map();
   let ahead = [];
+  let busJobData = null;
+  const busStages = new Map();
 
   while (pos < len) {
     const blockType = u32();
@@ -791,10 +800,43 @@ function parseBsiiWaypoints(buf) {
         if (Array.isArray(val) && val.length >= 3) {
           storage.set(unitId, [val[0] / 256, val[2] / 256]);
         }
+      } else if (st.name === 'player_bus_job') {
+        if (!busJobData) busJobData = {};
+        busJobData[f.name] = val;
+      } else if (st.name === 'player_bus_job_stage') {
+        let stg = busStages.get(unitId);
+        if (!stg) { stg = {}; busStages.set(unitId, stg); }
+        stg[f.name] = val;
       }
     }
   }
-  return ahead.map((id) => storage.get(id)).filter(Boolean);
+
+  let busJob = null;
+  if (busJobData && Array.isArray(busJobData.stages) && busJobData.stages.length > 0) {
+    const stageIdx = typeof busJobData.stage_idx === 'number' ? busJobData.stage_idx : 0;
+    const curStageId = busJobData.stages[stageIdx];
+    const stage = busStages.get(curStageId);
+    if (stage) {
+      const extractCityToken = (s) => {
+        if (!s || typeof s !== 'string') return '';
+        const m = s.match(/city\.([a-z0-9_]+)/i);
+        return m ? m[1].toLowerCase() : '';
+      };
+      busJob = {
+        active: true,
+        stageIdx,
+        totalStages: busJobData.stages.length,
+        sourceCityToken: extractCityToken(stage.source_bus_stop),
+        destCityToken: extractCityToken(stage.target_bus_stop),
+        passengersCount: Array.isArray(busJobData.passengers) ? busJobData.passengers.length : 0,
+        plannedDistanceKm: stage.planned_distance || 0,
+        travelledDistanceKm: stage.travelled_distance || 0,
+      };
+    }
+  }
+
+  const waypoints = ahead.map((id) => storage.get(id)).filter(Boolean);
+  return { waypoints, busJob };
 }
 
 function parseTextWaypoints(text) {
@@ -809,10 +851,44 @@ function parseTextWaypoints(text) {
     const z = Number(m[3].trim());
     if (Number.isFinite(x) && Number.isFinite(z)) storage.set(m[1], [x / 256, z / 256]);
   }
-  return ahead.map((id) => storage.get(id)).filter(Boolean);
+
+  let busJob = null;
+  const busJobMatch = /player_bus_job\s*:\s*\S+\s*\{([^}]*)\}/i.exec(text);
+  if (busJobMatch) {
+    const body = busJobMatch[1];
+    const stageIdx = parseInt(/stage_idx\s*:\s*(\d+)/i.exec(body)?.[1] || '0', 10);
+    const stageMatches = [...body.matchAll(/stages\[\d*\]:\s*(\S+)/g)].map((x) => x[1]);
+    const targetStageId = stageMatches[stageIdx];
+    const passengersCount = [...body.matchAll(/passengers\[\d*\]:\s*(\S+)/g)].length;
+    if (targetStageId) {
+      const stageRegex = new RegExp(`player_bus_job_stage\\s*:\\s*${targetStageId.replace('.', '\\.')}\\s*\\{([^}]*)\\}`, 'i');
+      const stageMatch = stageRegex.exec(text);
+      if (stageMatch) {
+        const sBody = stageMatch[1];
+        const srcStop = /source_bus_stop\s*:\s*(\S+)/i.exec(sBody)?.[1] || '';
+        const dstStop = /target_bus_stop\s*:\s*(\S+)/i.exec(sBody)?.[1] || '';
+        const plannedDist = parseInt(/planned_distance\s*:\s*(\d+)/i.exec(sBody)?.[1] || '0', 10);
+        const travelledDist = parseInt(/travelled_distance\s*:\s*(\d+)/i.exec(sBody)?.[1] || '0', 10);
+        const extractCityToken = (s) => (s.match(/city\.([a-z0-9_]+)/i)?.[1] || '').toLowerCase();
+        busJob = {
+          active: true,
+          stageIdx,
+          totalStages: stageMatches.length,
+          sourceCityToken: extractCityToken(srcStop),
+          destCityToken: extractCityToken(dstStop),
+          passengersCount,
+          plannedDistanceKm: plannedDist,
+          travelledDistanceKm: travelledDist,
+        };
+      }
+    }
+  }
+
+  const waypoints = ahead.map((id) => storage.get(id)).filter(Boolean);
+  return { waypoints, busJob };
 }
 
-let saveCache = { file: '', mtime: 0, waypoints: [] };
+let saveCache = { file: '', mtime: 0, waypoints: [], busJob: null };
 
 function getWaypointsFromNewestSave(gameName) {
   const info = gameName === 'ats'
@@ -863,10 +939,10 @@ function getWaypointsFromNewestSave(gameName) {
       raw = zlib.inflateSync(compressed);
     }
     const magic = raw.subarray(0, 4).toString('latin1');
-    let waypoints = [];
-    if (magic === 'BSII') waypoints = parseBsiiWaypoints(raw);
-    else if (raw.subarray(0, 8).toString('latin1') === 'SiiNunit') waypoints = parseTextWaypoints(raw.toString('utf8'));
-    saveCache = { file: newest.file, mtime: newest.mtime, waypoints };
+    let parsed = { waypoints: [], busJob: null };
+    if (magic === 'BSII') parsed = parseBsiiWaypoints(raw);
+    else if (raw.subarray(0, 8).toString('latin1') === 'SiiNunit') parsed = parseTextWaypoints(raw.toString('utf8'));
+    saveCache = { file: newest.file, mtime: newest.mtime, waypoints: parsed.waypoints || [], busJob: parsed.busJob || null };
     return saveCache;
   } catch {
     return null;
@@ -1081,8 +1157,27 @@ function updateRouteProgressAndCheckDeviation() {
   const passedDist = route.cumDist[bestIdx] || 0;
   const totalWorld = route.cumDist[numPts - 1] || 1;
   const fracRemaining = Math.max(0, 1 - passedDist / totalWorld);
-  route.remainingMeters = Math.round(route.totalDistanceMeters * fracRemaining);
-  route.remainingSeconds = Math.round(route.totalDurationSeconds * fracRemaining);
+
+  const nav = state.navigation || {};
+  const mapScale = (state.game === 'ats') ? 20 : (state.activeMapId === 'ets2_europe' ? 19 : 1);
+
+  if (nav.gameNavDistanceMeters > 0 && route.mode === 'save-waypoints') {
+    route.remainingMeters = Math.round(nav.gameNavDistanceMeters);
+    if (nav.gameNavTimeSec > 0) {
+      route.remainingSeconds = Math.round(nav.gameNavTimeSec);
+    } else {
+      route.remainingSeconds = Math.round(route.totalDurationSeconds * fracRemaining);
+    }
+  } else {
+    route.remainingMeters = Math.round(route.totalDistanceMeters * fracRemaining);
+    route.remainingSeconds = Math.round(route.totalDurationSeconds * fracRemaining);
+  }
+
+  // Escala dinâmica para a distância da manobra
+  const remMapUnits = Math.max(1, totalWorld - passedDist);
+  const maneuverScale = (nav.gameNavDistanceMeters > 0 && route.mode === 'save-waypoints')
+    ? (nav.gameNavDistanceMeters / remMapUnits)
+    : mapScale;
 
   // Próxima manobra à frente
   let nextMan = route.maneuvers[route.maneuvers.length - 1] || null;
@@ -1090,7 +1185,7 @@ function updateRouteProgressAndCheckDeviation() {
     if (m.pointIndex > bestIdx + 1) {
       nextMan = {
         ...m,
-        distanceMeters: Math.max(0, Math.round(m.cumDist - passedDist)),
+        distanceMeters: Math.max(0, Math.round((m.cumDist - passedDist) * maneuverScale)),
       };
       break;
     }
@@ -1269,30 +1364,72 @@ function handleTelemetryPacket(pkt) {
 
   const cargoDmg = Math.max(job.cargo?.cargoDamage || 0, trailer?.damage?.cargo || 0);
 
-  state.job = {
-    hasActiveJob,
-    mustPickUp,
-    cargoLoaded: !!job.cargoLoaded,
-    trailerAttached: isTrailerAttached,
-    cargoName: job.cargo?.name || '',
-    cargoMassKg: Math.round(job.cargo?.mass || 0),
-    cargoDamagePercent: Math.round(cargoDmg * 100),
-    income: job.income || 0,
-    remainingMinutes: null,
-    sourceCity: job.citySource || job.citySourceId || '',
-    sourceCityId: job.citySourceId || '',
-    sourceCompany: job.companySource || job.companySourceId || '',
-    sourceCompanyId: job.companySourceId || '',
-    destCity: job.cityDestination || job.cityDestinationId || '',
-    destCityId: job.cityDestinationId || '',
-    destCompany: job.companyDestination || job.companyDestinationId || '',
-    destCompanyId: job.companyDestinationId || '',
+  const saveInfo = getWaypointsFromNewestSave(state.game);
+  const busJob = saveInfo?.busJob;
+  const map = loadMapData(state.activeMapId);
+
+  const resolveCityName = (token) => {
+    if (!token) return '';
+    if (map && map.cities) {
+      const c = map.cities.find((ci) => ci[0] === token);
+      if (c && c[1]) return c[1];
+    }
+    return token.charAt(0).toUpperCase() + token.slice(1);
   };
 
+  if (!hasActiveJob && busJob && busJob.active) {
+    const srcName = resolveCityName(busJob.sourceCityToken);
+    const dstName = resolveCityName(busJob.destCityToken);
+    state.job = {
+      hasActiveJob: true,
+      isBusJob: true,
+      mustPickUp: false,
+      cargoLoaded: true,
+      trailerAttached: false,
+      cargoName: `${busJob.passengersCount} Passageiros a Bordo`,
+      cargoMassKg: busJob.passengersCount * 75,
+      cargoDamagePercent: 0,
+      income: 0,
+      remainingMinutes: Math.round((nav.time || 0) / 60) || null,
+      sourceCity: srcName,
+      sourceCityId: busJob.sourceCityToken,
+      sourceCompany: 'Terminal Rodoviário',
+      sourceCompanyId: 'bus_stop',
+      destCity: dstName,
+      destCityId: busJob.destCityToken,
+      destCompany: 'Terminal Rodoviário',
+      destCompanyId: 'bus_stop',
+      busStageText: `Etapa ${busJob.stageIdx + 1} de ${busJob.totalStages}`,
+      passengersAboard: busJob.passengersCount,
+      plannedDistanceKm: busJob.plannedDistanceKm,
+      travelledDistanceKm: busJob.travelledDistanceKm,
+    };
+  } else {
+    state.job = {
+      hasActiveJob,
+      isBusJob: false,
+      mustPickUp,
+      cargoLoaded: !!job.cargoLoaded,
+      trailerAttached: isTrailerAttached,
+      cargoName: job.cargo?.name || '',
+      cargoMassKg: Math.round(job.cargo?.mass || 0),
+      cargoDamagePercent: Math.round(cargoDmg * 100),
+      income: job.income || 0,
+      remainingMinutes: null,
+      sourceCity: job.citySource || job.citySourceId || '',
+      sourceCityId: job.citySourceId || '',
+      sourceCompany: job.companySource || job.companySourceId || '',
+      sourceCompanyId: job.companySourceId || '',
+      destCity: job.cityDestination || job.cityDestinationId || '',
+      destCityId: job.cityDestinationId || '',
+      destCompany: job.companyDestination || job.companyDestinationId || '',
+      destCompanyId: job.companyDestinationId || '',
+    };
+  }
+
   // Decisão Automática de Rota (se não houver uma rota manual travada pelo usuário no app)
-  const map = loadMapData(state.activeMapId);
   if (map && (!state.activeRoute || state.activeRoute.mode !== 'manual')) {
-    if (hasActiveJob) {
+    if (hasActiveJob && !state.job.isBusJob) {
       const targetMode = mustPickUp ? 'job-pickup' : 'job-delivery';
       const targetCityId = mustPickUp ? job.citySourceId : job.cityDestinationId;
       const targetCompId = mustPickUp ? job.companySourceId : job.companyDestinationId;
@@ -1319,21 +1456,24 @@ function handleTelemetryPacket(pkt) {
           }
         }
       }
-    } else if (state.navigation.gameNavDistanceMeters > 80) {
-      // Sem entrega ativa, mas há rota marcada no mapa do jogo -> lê waypoints do save!
-      const saveInfo = getWaypointsFromNewestSave(state.game);
+    } else if (state.navigation.gameNavDistanceMeters > 80 || state.job.isBusJob) {
+      // Linha de ônibus ou rota marcada no mapa do jogo -> lê waypoints do save!
       if (saveInfo && saveInfo.waypoints.length > 0) {
-        const autoKey = `save:${saveInfo.mtime}:${saveInfo.waypoints.length}`;
+        const autoKey = `save:${saveInfo.mtime}:${saveInfo.waypoints.length}:${busJob?.stageIdx ?? 0}`;
         if (autoKey !== lastAutoRouteKey || !state.activeRoute) {
-          // Filtra waypoints que já ficaram para trás
+          const isBus = !!state.job.isBusJob;
+          const finalDestLabel = isBus ? `Terminal Rodoviário de ${state.job.destCity}` : 'Marcador do Jogo';
           const validWps = saveInfo.waypoints
             .filter(([wx, wy]) => Math.hypot(wx - state.truck.x, wy - state.truck.y) > 45)
             .map(([wx, wy], idx, arr) => ({
               x: wx,
               y: wy,
-              label: idx === arr.length - 1 ? 'Marcador do Jogo' : `Parada ${idx + 1}`,
+              label: idx === arr.length - 1 ? finalDestLabel : `Parada ${idx + 1}`,
             }));
           if (validWps.length > 0) {
+            const routeLabel = isBus
+              ? `Linha: ${state.job.sourceCity} ➔ ${state.job.destCity} (${state.job.passengersAboard} Passageiros)`
+              : 'Rota do Mapa do Jogo';
             const newRoute = computeRoute(
               map,
               state.truck.x,
@@ -1341,12 +1481,12 @@ function handleTelemetryPacket(pkt) {
               state.truck.headingRad,
               validWps,
               'save-waypoints',
-              'Rota do Mapa do Jogo'
+              routeLabel
             );
             if (newRoute) {
               state.activeRoute = newRoute;
               lastAutoRouteKey = autoKey;
-              console.log(`[GPS] Rota lida do save do jogo (${validWps.length} waypoints) em ${newRoute.calcTimeMs}ms`);
+              console.log(`[GPS] Rota lida do save (${validWps.length} waypoints, ${routeLabel}) em ${newRoute.calcTimeMs}ms`);
             }
           }
         }
